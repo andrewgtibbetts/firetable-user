@@ -218,6 +218,18 @@ firetable.ui.initSettings = function () {
     }
   }
 
+  // ── Show Song Announcements ──
+  var showSongAnnouncements = localStorage[STORAGE.showSongAnnouncements];
+  if (typeof showSongAnnouncements == "undefined") {
+    localStorage[STORAGE.showSongAnnouncements] = true;
+    firetable.showSongAnnouncements = true;
+    $("#showSongAnnouncementsToggle").prop("checked", true);
+  } else {
+    showSongAnnouncements = JSON.parse(showSongAnnouncements);
+    firetable.showSongAnnouncements = showSongAnnouncements;
+    $("#showSongAnnouncementsToggle").prop("checked", showSongAnnouncements);
+  }
+
   // ── Chat Sound (Badoop) ──
   var playBadoop = localStorage[STORAGE.badoop];
   if (typeof playBadoop == "undefined") {
@@ -278,6 +290,17 @@ firetable.ui.initSettings = function () {
     firetable.avatarStyle = savedAvatarStyle;
     $("#avatarStylePicker").val(savedAvatarStyle);
   }
+
+  firetable.ui.applySongAnnouncementVisibility();
+};
+
+/**
+ * Toggle visibility of song announcement rows in chat based on user setting.
+ */
+firetable.ui.applySongAnnouncementVisibility = function () {
+  var el = document.getElementById("actualChat");
+  if (!el) return;
+  el.classList.toggle("songAnnouncementsOff", firetable.showSongAnnouncements === false);
 };
 
 // ─── Miscellaneous UI Event Bindings ─────────────────────────────────────────
@@ -438,7 +461,7 @@ firetable.ui.getViewFromPath = function () {
 firetable.ui.updateScreenBtn = function (val) {
   var icons  = { on: 'capture', off: 'cancel_presentation', sync: 'microwave' };
   var titles = { on: 'Screen: always on', off: 'Screen: disabled', sync: 'Screen: synced' };
-  $('#screenControl').find('.material-symbols-outlined').text(icons[val] || 'microwave');
+  $('#screenControl').find('.material-symbols-filled').text(icons[val] || 'microwave');
   $('#screenControl').attr('data-label', titles[val] || 'Screen: synced').attr('aria-label', titles[val] || 'Screen: synced');
   var isOn = (val === 'on') || (val === 'sync' && firetable.screenSyncPos);
   $('#screenControl').toggleClass('on', isOn);
@@ -532,12 +555,101 @@ firetable.ui.tooltip = (function () {
     // ── User list: rich user info tooltip on .prson hover ──
     var userTipEl = document.getElementById('ft-user-tip');
     var userTipArrowEl = document.getElementById('ft-user-tip-arrow');
+    var userTipTooltipEl = document.getElementById('ft-user-tip-tooltip');
     var $userTip  = $(userTipEl);
     var _cardCountCache = {};
+    var _currentAnchorEl = null;
+
+    function setUserTipTailSide(anchorEl) {
+      if (!anchorEl || !userTipEl) return;
+
+      var anchorRect = anchorEl.getBoundingClientRect();
+      var popRect = userTipEl.getBoundingClientRect();
+      var anchorCx = anchorRect.left + (anchorRect.width / 2);
+      var anchorCy = anchorRect.top + (anchorRect.height / 2);
+      var popCx = popRect.left + (popRect.width / 2);
+      var popCy = popRect.top + (popRect.height / 2);
+      var dx = popCx - anchorCx;
+      var dy = popCy - anchorCy;
+      var side = 'left';
+
+      if (Math.abs(dx) >= Math.abs(dy)) {
+        side = dx >= 0 ? 'left' : 'right';
+      } else {
+        side = dy >= 0 ? 'top' : 'bottom';
+      }
+
+      userTipEl.classList.remove('tail-left', 'tail-right', 'tail-top', 'tail-bottom');
+      userTipEl.classList.add('tail-' + side);
+    }
+
+    // Clear anchor-name when the popover is dismissed (light-dismiss or Escape)
+    userTipEl.addEventListener('toggle', function (e) {
+      if (e.newState === 'closed' && _currentAnchorEl) {
+        _currentAnchorEl.style.removeProperty('anchor-name');
+        _currentAnchorEl = null;
+      }
+      if (e.newState === 'closed') {
+        userTipTooltipEl.classList.remove('is-visible');
+        userTipTooltipEl.removeAttribute('data-anchor');
+        $(userTipEl).find('[data-ft-title]').each(function () {
+          var $btn = $(this);
+          $btn.attr('title', $btn.attr('data-ft-title')).removeAttr('data-ft-title');
+        });
+      }
+    });
+
+    // ── User tip action buttons: deterministic JS-positioned tooltips ──
+    function positionUserTipTooltip(anchorBtn) {
+      if (!anchorBtn) return;
+      var rect = anchorBtn.getBoundingClientRect();
+      userTipTooltipEl.style.left = (rect.left + (rect.width / 2)) + 'px';
+      userTipTooltipEl.style.top = rect.top + 'px';
+    }
+
+    $(userTipEl).on('mouseenter.ft-tooltip-internal', '.utt-icon-btn', function () {
+      var $el = $(this);
+      var text = $el.attr('data-ft-title') || $el.attr('title');
+      if (!text) return;
+      if ($el.attr('title')) {
+        $el.attr('data-ft-title', text).removeAttr('title');
+      }
+      userTipTooltipEl.textContent = text;
+      positionUserTipTooltip(this);
+      userTipTooltipEl.classList.add('is-visible');
+    }).on('mouseleave.ft-tooltip-internal', '.utt-icon-btn', function () {
+      var $el = $(this);
+      if ($el.attr('data-ft-title')) {
+        $el.attr('title', $el.attr('data-ft-title')).removeAttr('data-ft-title');
+      }
+      userTipTooltipEl.classList.remove('is-visible');
+      userTipTooltipEl.style.left = '';
+      userTipTooltipEl.style.top = '';
+    });
 
     function showUserTip(anchorEl, userid) {
       var userData = ftapi.users && ftapi.users[userid];
       if (!userData) return;
+
+      function getBlockActionState(targetUser, targetUid) {
+        var isCurrentlyBlocked = !!(ftapi.blockedUsers && ftapi.blockedUsers[targetUid]);
+        if (isCurrentlyBlocked) {
+          return { canToggle: true, title: 'Unblock' };
+        }
+        if (targetUid === ftapi.uid) {
+          return { canToggle: false, title: 'You cannot block yourself.' };
+        }
+        if (targetUser.hostbot) {
+          return { canToggle: false, title: 'You cannot block the room bot.' };
+        }
+        if (targetUser.supermod) {
+          return { canToggle: false, title: 'You cannot block a supermod.' };
+        }
+        if (targetUser.mod) {
+          return { canToggle: false, title: 'You cannot block a moderator.' };
+        }
+        return { canToggle: true, title: 'Block' };
+      }
 
       var role = userData.hostbot  ? 'Bot'
                : userData.supermod ? 'Supermod'
@@ -571,56 +683,42 @@ firetable.ui.tooltip = (function () {
       facts.push({ label: 'Cards', val: '<span class="utt-cards-val">…</span>' });
 
       var factsHtml = facts.map(function (f) {
-        return '<div class="utt-fact"><span class="utt-label">' + f.label + '</span><span class="utt-val">' + f.val + '</span></div>';
+        return '<div class="utt-fact' + (f.cls ? ' ' + f.cls : '') + '"><span class="utt-label">' + f.label + '</span><span class="utt-val">' + f.val + '</span></div>';
       }).join('');
 
       $userTip.find('.utt-facts').html(factsHtml);
       $userTip.attr('data-for', userid);
 
-      // >1024px: tooltip on the right; <=1024px: tooltip on the left
-      var placement = window.matchMedia('(min-width: 1024px)').matches ? 'right' : 'left';
+      // Set CSS anchor on the clicked .prson element for CSS anchor positioning
+      if (_currentAnchorEl) _currentAnchorEl.style.removeProperty('anchor-name');
+      _currentAnchorEl = anchorEl;
+      anchorEl.style.setProperty('anchor-name', '--ft-user-anchor');
 
-      userTipEl.style.visibility = 'hidden';
-      $userTip.addClass('is-visible');
-
-      FloatingUIDOM.computePosition(anchorEl, userTipEl, {
-        placement: placement,
-        strategy: 'fixed',
-        middleware: [
-          FloatingUIDOM.offset(8),
-          FloatingUIDOM.flip(),
-          FloatingUIDOM.shift({ padding: 8 }),
-          FloatingUIDOM.arrow({ element: userTipArrowEl, padding: 4 })
-        ]
-      }).then(function (pos) {
-        userTipEl.style.left = pos.x + 'px';
-        userTipEl.style.top  = pos.y + 'px';
-
-        // Arrow positioning
-        if (pos.middlewareData.arrow) {
-          var ax = pos.middlewareData.arrow.x;
-          var ay = pos.middlewareData.arrow.y;
-          var staticSide = { top: 'bottom', bottom: 'top', left: 'right', right: 'left' }[pos.placement.split('-')[0]];
-          Object.assign(userTipArrowEl.style, {
-            left:         ax != null ? ax + 'px' : '',
-            top:          ay != null ? ay + 'px' : '',
-            right:        '',
-            bottom:       '',
-            [staticSide]: '-4px'
-          });
-        }
-
-        userTipEl.style.visibility = 'visible';
+      userTipEl.showPopover();
+      requestAnimationFrame(function () {
+        setUserTipTailSide(anchorEl);
       });
+
+      // Suppress interaction hints for blocked users and own user
+      var isBlocked = !!(ftapi.blockedUsers && ftapi.blockedUsers[userid]);
+      var isSelf = userid === ftapi.uid;
+      var blockAction = getBlockActionState(userData, userid);
+      $userTip.toggleClass('is-blocked', isBlocked);
+      $userTip.toggleClass('is-self', isSelf);
+      $userTip.toggleClass('can-block', !isSelf);
+      $userTip.find('.utt-at-btn')
+        .toggleClass('is-disabled', isBlocked)
+        .attr('aria-disabled', isBlocked ? 'true' : 'false')
+        .attr('title', isBlocked ? 'Cannot @ mention blocked users. Unblock them first.' : '@ in chat');
+      $userTip.find('.utt-block-btn')
+        .toggleClass('is-disabled', !blockAction.canToggle)
+        .attr('aria-disabled', blockAction.canToggle ? 'false' : 'true')
+        .attr('title', blockAction.title);
 
       // Mod/supermod actions
       var ownUser = ftapi.uid && ftapi.users && ftapi.users[ftapi.uid];
       var isMod = ownUser && (ownUser.mod || ownUser.supermod);
-      var actionsHtml = '';
-      if (isMod && userid !== ftapi.uid) {
-        actionsHtml = '<button class="utt-action-btn" data-action="add-to-deck">Add to deck</button>';
-      }
-      $userTip.find('.utt-actions').html(actionsHtml);
+      $userTip.toggleClass('can-add-to-deck', !!(isMod && !isSelf));
 
       // Resolve card count
       if (_cardCountCache.hasOwnProperty(userid)) {
@@ -639,34 +737,45 @@ firetable.ui.tooltip = (function () {
       }
     }
 
-    var _hideTimer = null;
-    function scheduleHideUserTip() {
-      _hideTimer = setTimeout(function () {
-        $userTip.removeClass('is-visible').removeAttr('data-for');
-      }, 150);
-    }
-    function cancelHideUserTip() {
-      clearTimeout(_hideTimer);
-    }
-
     $(userTipEl)
-      .on('mouseenter', cancelHideUserTip)
-      .on('mouseleave', scheduleHideUserTip)
+      .on('click', '[data-action="chat-at"]', function () {
+        if ($(this).hasClass('is-disabled')) return;
+        var uid = $userTip.attr('data-for');
+        var userData = uid && ftapi.users && ftapi.users[uid];
+        if (!userData || !userData.username) return;
+        $('#newchat').val(function (i, val) { return val + '@' + userData.username + ' '; }).focus();
+        userTipEl.hidePopover();
+      })
       .on('click', '[data-action="add-to-deck"]', function () {
         var uid = $userTip.attr('data-for');
         var userData = uid && ftapi.users && ftapi.users[uid];
         if (userData && userData.username) {
           ftapi.actions.sendBotCommand('!add ' + userData.username);
+          userTipEl.hidePopover();
         }
+      })
+      .on('click', '[data-action="toggle-block"]', function () {
+        if ($(this).hasClass('is-disabled')) return;
+        var uid = $userTip.attr('data-for');
+        var userData = uid && ftapi.users && ftapi.users[uid];
+        if (!userData || !userData.username) return;
+        var isCurrentlyBlocked = !!(ftapi.blockedUsers && ftapi.blockedUsers[uid]);
+        if (isCurrentlyBlocked) {
+          ftapi.actions.unblockUser(userData.username, function () {});
+          $userTip.removeClass('is-blocked').removeClass('no-interact');
+          $userTip.find('.utt-block-btn').attr('title', 'Block');
+        } else {
+          ftapi.actions.blockUser(userData.username, function () {});
+          $userTip.addClass('is-blocked').addClass('no-interact');
+          $userTip.find('.utt-block-btn').attr('title', 'Unblock');
+        }
+        userTipEl.hidePopover();
       });
 
-    $('#allUsersWrap')
-      .on('mouseenter.ft-usertip', '.prson', function () {
-        cancelHideUserTip();
-        var uid = $(this).attr('data-userid');
-        if (uid) showUserTip(this, uid);
-      })
-      .on('mouseleave.ft-usertip', '.prson', scheduleHideUserTip);
+    $('#allUsersWrap').on('click.ft-usertip', '.prson', function () {
+      var uid = $(this).attr('data-userid');
+      if (uid) showUserTip(this, uid);
+    });
   }
 
   return { bind: bind, show: show, hide: hide };
@@ -941,6 +1050,16 @@ firetable.ui.setupMiscEvents = function () {
       document.getElementById("actualChat").classList.remove("avatarsOff");
     } else {
       document.getElementById("actualChat").classList.add("avatarsOff");
+    }
+  });
+  $('#showSongAnnouncementsToggle').change(function () {
+    var wasAtBottom = firetable.utilities.isChatPrettyMuchAtBottom();
+    firetable.debug && console.log("show song announcements " + (this.checked ? "on" : "off"));
+    localStorage[STORAGE.showSongAnnouncements] = this.checked;
+    firetable.showSongAnnouncements = this.checked;
+    firetable.ui.applySongAnnouncementVisibility();
+    if (this.checked && wasAtBottom) {
+      firetable.utilities.scrollToBottom();
     }
   });
   $('#desktopNotifyMentionsToggle').change(function () {
