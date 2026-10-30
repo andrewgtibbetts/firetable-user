@@ -715,6 +715,16 @@ button.track-warning {
     animation: fire-btn-on 0.5s ease-out;
 }
 
+/* Grab fire burst: briefly lights up the grab button when you add a song (#47) */
+#grab.grab-burst {
+    color: var(--color-on-accent);
+    background-color: var(--color-accent);
+    background-image: radial-gradient(circle at 50% 15%, rgba(255, 255, 255, 0.18), rgba(0, 0, 0, 0.25));
+    border-top-color: rgba(255, 255, 255, 0.3);
+    box-shadow: 0 0 0.75rem color-mix(in srgb, var(--color-accent) 55%, transparent), var(--shadow-drop);
+    animation: fire-btn-on 0.5s ease-out;
+}
+
 /* Bigger invisible tap area for small icon buttons on touch screens */
 @media (pointer: coarse) {
     .iconbutt {

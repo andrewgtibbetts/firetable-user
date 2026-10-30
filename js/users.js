@@ -338,6 +338,18 @@ firetable.actions.grab = function () {
       url: isSC ? firetable.utilities.soundCloudPageUrl(firetable.song.url) : '',
       img: isSC && /^https:\/\//.test(firetable.song.image || '') ? firetable.song.image : ''
     });
+    // Brief fire burst on the grab button (#47)
+    var $grabBtn = $('#grab');
+    $grabBtn.addClass('grab-burst');
+    if (typeof window.firetableIgniteFyre === 'function') {
+      window.firetableIgniteFyre(1);
+    }
+    setTimeout(function () {
+      $grabBtn.removeClass('grab-burst');
+      if (typeof window.firetableSetFyreIntensity === 'function') {
+        window.firetableSetFyreIntensity(firetable.fireCount || 0);
+      }
+    }, 1500);
   }
 };
 
