@@ -331,27 +331,31 @@ select::-ms-expand {
      *   </select>
      * ─────────────────────────────────────────────────────────────────────── */
 
-    /* The trigger button — flex row so spans don't concatenate as inline text */
+    /* The trigger button — flex row so spans lay out correctly */
     #listpicker > button,
     #djlistpicker > button {
         display: flex;
         align-items: center;
         gap: 0.5em;
         flex: 1;
-        width: 100%;
         min-width: 0;
         overflow: hidden;
         background: transparent;
         border: none;
         padding: 0;
-        margin: 0;
         color: inherit;
         font: inherit;
-        text-align: left;
         cursor: pointer;
     }
 
-    /* DJ picker: push content past the "DJ Playlist:" absolute label */
+    /* listpicker button: left breathing room (no label overlay, just a margin) */
+    #listpicker > button {
+        padding-inline-start: var(--pad2);
+    }
+
+    /* DJ picker: push content past the "DJ Playlist:" absolute label.
+       NOTE: the select's own padding-inline-start:7em is cancelled below,
+       at the main #djlistpicker rule, so this is the only offset. */
     #djlistpicker > button {
         padding-inline-start: 7em;
     }
@@ -3488,6 +3492,16 @@ a.importLinkCheck {
     border-top-color: rgba(255,255,255,0.1);
     border-radius: var(--radius-md);
     color: rgba(255, 255, 255, 0.7);
+}
+
+/* When appearance:base-select is active, the <button> child handles the 7em
+   label offset. Cancel the select's own left padding so content is not
+   indented twice (select 7em + button 7em = 14em). This rule comes after the
+   main #djlistpicker rule so it wins the same-specificity cascade. */
+@supports (appearance: base-select) {
+    #djlistpicker {
+        padding-inline-start: 0;
+    }
 }
 
 #deckQueue {
