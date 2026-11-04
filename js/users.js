@@ -169,7 +169,17 @@ firetable.ui.setupPickName = function () {
 /** Sign out. */
 firetable.actions.logOut = function () {
   document.querySelectorAll("dialog[open]").forEach(function (d) { d.close(); });
-  ftapi.actions.logOut();
+  // Stop this device's push notifications for the account first (needs the
+  // sign-in); they come back on their own when the same account signs in here.
+  var forget = firetable.push ? firetable.push.forget() : Promise.resolve();
+  var done = false;
+  var out = function () {
+    if (done) return;
+    done = true;
+    ftapi.actions.logOut();
+  };
+  forget.then(out, out);
+  setTimeout(out, 2000);
   firetable.debug && console.log("logout");
 };
 
@@ -204,7 +214,6 @@ firetable.actions.showLoginScreen = function () {
   $("#logOutButton").hide().off();
   $('#mainGrid').removeClass().addClass('login');
   $("#grab").css("display", "none");
-  $("#skipTrigger").css("display", "none");
 
   if (firetable.loginForm && !$("#login").html()) {
     $("#mainGrid").append('<div id="login" class="scroll-view" role="region" aria-label="Log in or sign up">' + firetable.loginForm + '</div>');
@@ -242,11 +251,13 @@ firetable.actions.loggedIn = function (user) {
   $("#avatarStylePicker").val(firetable.avatarStyle || "robohash:" + firetable.avatarset);
 
   // Load all playlists into the picker
-  firetable.actions.loadPlaylistPrefs().then(function () { ftapi.lookup.allLists(function (allPlaylists) {
+  firetable.actions.restoreListCounts();
+  firetable.actions.loadPlaylistPrefs().then(function () { ftapi.lookup.listNames(function (allPlaylists) {
     var viewListStorageKey = "firetable.viewList." + ftapi.uid;
     $("#listpicker").off("change");
     $("#djlistpicker").off("change");
     firetable.ui.fillPlaylistPickers(allPlaylists);
+    firetable.actions.loadListCounts(allPlaylists);
     var defaultList = firetable.plPrefs.defaultList;
     if (!$("#listpicker option[value='" + defaultList + "']").length) defaultList = "0";
 
@@ -304,7 +315,6 @@ firetable.actions.loggedIn = function (user) {
   firetable.nav.restore();
   firetable.nav.apply();
   $("#grab").css("display", "inline-block");
-  $("#skipTrigger").css("display", "inline-block");
 };
 
 // ─── User Lookup ─────────────────────────────────────────────────────────────
@@ -672,6 +682,21 @@ firetable.ui.setupUserEvents = function () {
   
 
   // ── Username change ──
+  // The avatar beside the box previews the face the typed name would give
+  // (robohash and DiceBear faces are made from the name).
+  var previewTimer = 0;
+  firetable.ui.updateUsernamePreview = function () {
+    var typed = String($("#changeUsername").val() || "").trim();
+    var name = typed || ftapi.uname || firetable.uname || "";
+    if (!ftapi.uid) return;
+    $("#usernameAvatarPreview")
+      .css("background-image", "url(" + firetable.utilities.avatarURL(ftapi.uid, name, null, null, true) + ")")
+      .attr("aria-label", typed ? "Your avatar as " + typed : "Your avatar");
+  };
+  $("#changeUsername").on("input", function () {
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(firetable.ui.updateUsernamePreview, 250);
+  });
   $("#changeUsername").on("keyup", function (e) {
     if (e.which !== 13) return;
     var newDjName = $(this).val();
@@ -683,6 +708,10 @@ firetable.ui.setupUserEvents = function () {
         } else {
           $("#usernameResponse").text("Great job! Your name is now " + newDjName);
           $("#loggedInName").text(newDjName);
+          ftapi.uname = newDjName;
+          $("#loggedInUser .ft-avatar").css("background-image", "url(" + firetable.utilities.avatarURL(ftapi.uid, newDjName, null, null, true) + ")");
+          $("#changeUsername").val("");
+          firetable.ui.updateUsernamePreview();
         }
       });
     }

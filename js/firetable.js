@@ -72,6 +72,74 @@ ftapi.detachSession = function() {
   ftapi.blockedUsers = {};
 };
 
+/*
+RECENT AND FRESH
+Each is about a hundred tracks, so they download the first time their tab
+opens (or something else needs them), not on every page load. After that
+they stay live.
+*/
+ftapi.historyLoaded = 0;
+ftapi.feeds = {
+  // the latest plays only; older ones load on request (ftapi.lookup.olderHistory)
+  history: {
+    query: function() { return ftapi.db().ref("songHistory").limitToLast(HISTORY_PAGE_SIZE); },
+    bind: function(query) {
+      query.on('child_added', function(dataSnapshot) {
+        var data = dataSnapshot.val();
+        data.histID = dataSnapshot.key;
+        if (!ftapi.oldestHistoryKey || dataSnapshot.key < ftapi.oldestHistoryKey) ftapi.oldestHistoryKey = dataSnapshot.key;
+        ftapi.historyLoaded++;
+        ftapi.events.emit("newHistory", data);
+      });
+      query.on('child_changed', function(dataSnapshot) {
+        var data = dataSnapshot.val();
+        data.histID = dataSnapshot.key;
+        ftapi.events.emit("editedHistory", data);
+      });
+    }
+  },
+  fresh: {
+    query: function() { return ftapi.db().ref("newMusic"); },
+    bind: function(query) {
+      query.on('child_added', function(dataSnapshot) {
+        var data = dataSnapshot.val();
+        data.histID = dataSnapshot.key;
+        ftapi.events.emit("newProduce", data);
+      });
+    }
+  }
+};
+
+/**
+ * Start Recent ("history") or Fresh ("fresh"), once.
+ * @param {string} name
+ * @returns {Promise} resolves when its tracks have arrived
+ */
+ftapi.watchFeed = function(name) {
+  var feed = ftapi.feeds[name];
+  if (!feed) return Promise.resolve();
+  if (feed.ready) return feed.ready;
+  if (!ftapi.started) {
+    // asked for before Firebase started: ftapi.init starts it
+    feed.wanted = true;
+    return new Promise(function(resolve) {
+      (feed.waiting = feed.waiting || []).push(resolve);
+    });
+  }
+  var query = feed.query();
+  feed.bind(query);
+  // the same query, so this is answered from what the listeners downloaded
+  feed.ready = query.once('value').then(function() {}, function() {});
+  (feed.waiting || []).forEach(function(resolve) { feed.ready.then(resolve); });
+  feed.waiting = null;
+  return feed.ready;
+};
+
+/** True once Recent or Fresh has been started. */
+ftapi.feedStarted = function(name) {
+  return !!(ftapi.feeds[name] && ftapi.feeds[name].ready);
+};
+
 ftapi.ready = function() {
   ftapi.events = new EventEmitter();
 };
@@ -132,6 +200,9 @@ ftapi.init = function(firebaseConfig) {
     // No one online => Firebase returns null; keep users an object (as it
     // starts out) so lookups like ftapi.users[id] don't throw.
     ftapi.users = okdata || {};
+    if (window.firetable && firetable.utilities && firetable.utilities.trackNames) {
+      firetable.utilities.trackNames(ftapi.users);
+    }
     if (ftapi.users[ftapi.uid]) {
       if (ftapi.users[ftapi.uid].username) {
         ftapi.uname = ftapi.users[ftapi.uid].username;
@@ -178,31 +249,9 @@ ftapi.init = function(firebaseConfig) {
     ftapi.events.emit("tagUpdate", data);
   });
 
-  // history emitter: the latest plays only; older ones load on request
-  // (ftapi.lookup.olderHistory). Both listeners use the same limited query,
-  // so the full history is never downloaded.
-  var recentz = ftapi.db().ref("songHistory").limitToLast(HISTORY_PAGE_SIZE);
-  ftapi.historyLoaded = 0;
-  recentz.on('child_added', function(dataSnapshot, prev) {
-    var data = dataSnapshot.val();
-    data.histID = dataSnapshot.key;
-    if (!ftapi.oldestHistoryKey || dataSnapshot.key < ftapi.oldestHistoryKey) ftapi.oldestHistoryKey = dataSnapshot.key;
-    ftapi.historyLoaded++;
-    ftapi.events.emit("newHistory", data);
-  });
-
-  recentz.on('child_changed', function(dataSnapshot) {
-    var data = dataSnapshot.val();
-    data.histID = dataSnapshot.key;
-    ftapi.events.emit("editedHistory", data);
-  });
-
-  // new songs emitter
-  var freshproduce = ftapi.db().ref("newMusic");
-  freshproduce.on('child_added', function(dataSnapshot, prev) {
-    var data = dataSnapshot.val();
-    data.histID = dataSnapshot.key;
-    ftapi.events.emit("newProduce", data);
+  // Recent and Fresh load when first needed (ftapi.watchFeed), not here
+  Object.keys(ftapi.feeds).forEach(function(name) {
+    if (ftapi.feeds[name].wanted) ftapi.watchFeed(name);
   });
 
 
@@ -451,8 +500,6 @@ ftapi.actions = {
    * @param {Object} [extra] - More fields to save with it (e.g. forSong)
    */
   sendChat: function(txt, cardid, extra) {
-    var chatFeed = ftapi.db().ref("chatFeed");
-    var chatData = ftapi.db().ref("chatData");
     var data = {
       time: firebase.database.ServerValue.TIMESTAMP,
       id: ftapi.uid,
@@ -465,30 +512,44 @@ ftapi.actions = {
         if (extra.hasOwnProperty(k) && extra[k] !== undefined && extra[k] !== null) data[k] = extra[k];
       }
     }
-    var chatItem = chatData.push(data, function() {
-      var feedObj = {
-        chatID: chatItem.key
-      };
-      var feedItem = chatFeed.push(feedObj, function() {
-        chatItem.child("feedID").set(feedItem.key);
+    return ftapi.actions.postChat(data);
+  },
+  /**
+   * Save a chat message and its chat feed entry in one write, so a message
+   * never exists without its feed entry (or the other way round). Before the
+   * database rules allow that, it falls back to the older three steps.
+   * @param {Object} data - {time, id, txt, name, ...}
+   * @returns {Promise}
+   */
+  postChat: function(data) {
+    var db = ftapi.db();
+    var chatID = db.ref("chatData").push().key;
+    var feedID = db.ref("chatFeed").push().key;
+    var updates = {};
+    updates["chatData/" + chatID] = Object.assign({}, data, { feedID: feedID });
+    updates["chatFeed/" + feedID] = { chatID: chatID };
+    return db.ref().update(updates).catch(function(err) {
+      if (!err || !/permission/i.test(err.code || err.message)) throw err;
+      return new Promise(function(resolve, reject) {
+        var chatItem = db.ref("chatData").push(data, function(e1) {
+          if (e1) return reject(e1);
+          var feedItem = db.ref("chatFeed").push({ chatID: chatItem.key }, function(e2) {
+            if (e2) return reject(e2);
+            chatItem.child("feedID").set(feedItem.key).then(resolve, reject);
+          });
+        });
       });
+    }).catch(function(err) {
+      console.error("[firetable] sending a chat message failed:", err);
     });
   },
   sendBotCommand: function(txt) {
-    var chatFeed = ftapi.db().ref("chatFeed");
-    var chatData = ftapi.db().ref("chatData");
-    var data = {
+    return ftapi.actions.postChat({
       time: firebase.database.ServerValue.TIMESTAMP,
       id: ftapi.uid,
       txt: txt,
       name: ftapi.uname,
       botCmd: true
-    };
-    var chatItem = chatData.push(data, function() {
-      var feedObj = { chatID: chatItem.key };
-      var feedItem = chatFeed.push(feedObj, function() {
-        chatItem.child("feedID").set(feedItem.key);
-      });
     });
   },
   // Save which playlist the DJ bot should draw from, without changing the local queue view.
@@ -604,15 +665,67 @@ ftapi.actions = {
     });
   },
   deleteTrack: function(trackID, callback) {
-    var removeThis = ftapi.queueRef.child(trackID);
-    removeThis.remove()
+    ftapi.queueRef.child(trackID).remove()
       .then(function() {
         if (callback) return callback();
+      }, function(err) {
+        console.error("[firetable] deleting a track failed:", err);
+        if (callback) return callback(err);
       });
   },
   unflagTrack: function(trackID) {
-    var removeThis = ftapi.queueRef.child(trackID + "/flagged");
-    removeThis.remove();
+    // a swap suggestion only means something on a flagged track
+    ftapi.queueRef.child(trackID).update({ flagged: null, swap: null });
+  },
+  /**
+   * Swap a flagged track for the YouTube Music audio track the bot found
+   * (its `swap`). Keeps the track's place and its tags; remembers where it
+   * came from (`swappedFrom`). Only if the slot still holds that track with
+   * that suggestion (the list may have changed meanwhile).
+   * @param {Object} ref - Playlist ref
+   * @param {string} key - Track key
+   * @param {string} cid - The track's cid as shown
+   * @returns {Promise<Object|null>} the track as it was (for undo), or null when nothing changed
+   */
+  swapTrack: function(ref, key, cid) {
+    var before = null;
+    return ref.child(key).transaction(function(cur) {
+      before = null;
+      if (cur === null) return null; // not loaded yet (asked again with the real value), or gone
+      var sw = cur.swap;
+      if (String(cur.cid) !== String(cid) || !sw || !sw.cid || sw.dismissed) return; // changed: leave it
+      before = JSON.parse(JSON.stringify(cur));
+      var next = {};
+      Object.keys(cur).forEach(function(k) {
+        // what described the old upload goes (art, link, length, flag)
+        if (!/^(?:flagged|swap|swappedFrom|img|url|duration|length|dur|time|seconds|msecs|ms|type|cid)$/.test(k)) next[k] = cur[k];
+      });
+      next.type = MEDIA_YOUTUBE;
+      next.cid = sw.cid;
+      next.url = "https://www.youtube.com/watch?v=" + sw.cid;
+      if (sw.dur) next.duration = sw.dur;
+      next.swappedFrom = { type: cur.type, cid: cur.cid, date: ftapi.now() };
+      return next;
+    }).then(function(r) {
+      return r.committed && before ? before : null;
+    });
+  },
+  /** Put a swapped track back the way it was, if it's still the swapped one. */
+  unswapTrack: function(ref, key, before, swappedCid) {
+    return ref.child(key).transaction(function(cur) {
+      if (cur === null) return null;
+      if (String(cur.cid) !== String(swappedCid)) return;
+      return before;
+    });
+  },
+  /** "Not this one": the bot won't suggest this match for this track again for a while. */
+  dismissSwap: function(ref, key, cid) {
+    return ref.child(key).transaction(function(cur) {
+      if (cur === null) return null;
+      if (String(cur.cid) !== String(cid) || !cur.swap || !cur.swap.cid) return;
+      cur.swap = { dismissed: cur.swap.cid, date: ftapi.now() };
+      return cur;
+    });
   },
   deleteList: function(listID) {
     var removeThis = ftapi.db().ref("playlists/" + ftapi.uid + "/" + listID);
@@ -634,7 +747,7 @@ ftapi.actions = {
             if (childData.cid) destObj[childData.cid] = childData.type;
           }
         });
-        sourceref.once("value")
+        return sourceref.once("value")
           .then(function(snapshot3) {
             var writes = [];
             snapshot3.forEach(function(childSnapshot3) {
@@ -654,13 +767,13 @@ ftapi.actions = {
 
             });
             // Report completion only once every copy has been saved
-            Promise.all(writes).then(function() {
-              callback();
-            }, function(err) {
-              console.error("[firetable] merge failed:", err);
-              callback(err || true);
-            });
+            return Promise.all(writes);
           });
+      }).then(function() {
+        callback();
+      }, function(err) {
+        console.error("[firetable] merge failed:", err);
+        callback(err || true);
       });
   },
   shuffleList: function(preview, pvChangeCallback) {
@@ -670,7 +783,8 @@ ftapi.actions = {
   },
   removeDuplicatesFromList: function(listID, callback) {
     // Read the chosen list itself (not whichever list is on screen), then
-    // delete every later copy of a track id, keeping the first one.
+    // delete every later copy of a track (same type and id, as merge counts
+    // them), keeping the first one.
     var ref = ftapi.lookup.listRef(listID);
     ref.once("value").then(function(snap) {
       var seen = {};
@@ -678,8 +792,9 @@ ftapi.actions = {
       snap.forEach(function(child) {
         var track = child.val();
         if (!track) return;
-        if (seen.hasOwnProperty(track.cid)) dupes.push(child.key);
-        else seen[track.cid] = true;
+        var id = track.type + ":" + track.cid;
+        if (seen.hasOwnProperty(id)) dupes.push(child.key);
+        else seen[id] = true;
       });
       return Promise.all(dupes.map(function(key) {
         return ref.child(key).remove();
@@ -756,8 +871,9 @@ ftapi.actions = {
     callback = callback || function() {};
     var validateName = ftapi.utilities.validateUsername(newName);
     if (!validateName.valid) return callback(validateName.reason);
-    // claim before we can change
-    var claimRef = ftapi.db().ref("nameClaim/" + newName);
+    // claim before we can change. Claims are lowercase, so a name is unique
+    // whatever its case: "Boss" can't be taken while "boss" is in use.
+    var claimRef = ftapi.db().ref("nameClaim/" + newName.toLowerCase());
     claimRef.set(ftapi.uid, function(error) {
       if (error) return callback("This username is not available");
       // name claimed, now we can set it
@@ -892,7 +1008,19 @@ ftapi.actions = {
       }
       updates["globalTracks/" + type + cid + "/artist"] = theartist;
       updates["globalTracks/" + type + cid + "/title"] = thetitle;
-      return ftapi.db().ref().update(updates);
+      // keep every fix: the hostbot's play history trusts these most, and the
+      // spelling joins the same song when another copy of it turns up
+      // (needs the hostbot's current database rules; older rules refuse it,
+      // so the fix is retried without the log entry)
+      var logKey = /^[12][A-Za-z0-9_-]{1,64}$/.test(String(type) + cid) ? "tagLog/" + ftapi.db().ref("tagLog").push().key : null;
+      if (logKey) {
+        updates[logKey] = { k: String(type) + cid, a: theartist, t: thetitle, by: ftapi.uid, at: firebase.database.ServerValue.TIMESTAMP };
+      }
+      return ftapi.db().ref().update(updates).catch(function(err) {
+        if (!logKey || !/permission/i.test(String(err && (err.code || err.message)))) throw err;
+        delete updates[logKey]; // database rules from before the tag log: save the fix without it
+        return ftapi.db().ref().update(updates);
+      });
     }).then(function() {
       ftapi.events.emit("editedHistory", { histID: histID, artist: theartist, title: thetitle, list: list || "songHistory" });
       if (callback) callback(null);
@@ -959,82 +1087,138 @@ ftapi.lookup = {
       });
   },
   card: function(cardid, callback) {
-    var thecard = ftapi.db().ref("cards/" + cardid);
-    thecard.once('value')
-      .then(function(snap) {
-        var data = snap.val();
-        return callback(data);
-      });
+    ftapi.utilities.read(ftapi.db().ref("cards/" + cardid), null, "a card").then(callback);
   },
   cardCollection: function(callback) {
-    var niceref = ftapi.db().ref("cards");
-    niceref.orderByChild('owner').equalTo(ftapi.uid).once("value")
-      .then(function(snapshot) {
-        var cards = snapshot.val();
-        return callback(cards);
-      });
+    ftapi.utilities.read(ftapi.db().ref("cards").orderByChild('owner').equalTo(ftapi.uid), null, "your cards").then(callback);
   },
+  /**
+   * Is this username in use by someone else, in any case ("Boss" counts as
+   * "boss")? Checks the lowercase name claim, then (for accounts from before
+   * claims were lowercase) the exact name.
+   * @param {string} name
+   * @param {Function} callback - (taken)
+   */
   usernameTaken: function(name, callback) {
-    var searchByName = ftapi.db().ref("users");
-    searchByName.orderByChild('username').equalTo(name).once("value")
-      .then(function(snapshot) {
-        var data = snapshot.val();
-        var taken = false;
-        if (data) {
-          taken = true;
-        }
-        return callback(taken);
+    var db = ftapi.db();
+    var lower = String(name).toLowerCase();
+    var claimHolder = /^[0-9a-z_]{1,22}$/.test(lower)
+      ? db.ref("nameClaim/" + lower).once("value").then(function(snap) { return snap.val(); }, function() { return null; })
+      : Promise.resolve(null);
+    claimHolder.then(function(holder) {
+      if (typeof holder !== "string" || holder === ftapi.uid) return false;
+      // a claim only counts while its holder still goes by that name
+      return db.ref("users/" + holder + "/username").once("value").then(function(snap) {
+        return typeof snap.val() === "string" && snap.val().toLowerCase() === lower;
       });
-  },
-  userByName: function(name, callback) {
-    var searchByName = ftapi.db().ref("users");
-    var ppl = [];
-    searchByName.orderByChild('username').equalTo(name).once("value")
-      .then(function(snapshot) {
-        snapshot.forEach(function(childSnapshot) {
-          var key = childSnapshot.key;
-          var childData = childSnapshot.val();
-          childData.userid = key;
-          ppl.push(childData);
+    }).then(function(taken) {
+      if (taken) return true;
+      return db.ref("users").orderByChild('username').equalTo(name).once("value").then(function(snapshot) {
+        var exact = false;
+        snapshot.forEach(function(child) {
+          if (child.key !== ftapi.uid) exact = true;
         });
-        if (ppl[0]) {
-          return callback(ppl[0]);
-        } else {
-          ftapi.lookup.userByID(name, callback);
-        }
+        return exact;
+      });
+    }).then(callback, function(err) {
+      console.error("[firetable] username check failed:", err);
+      callback(false); // the claim itself still refuses a taken name
+    });
+  },
+  /**
+   * A user by name, in any case ("@boss" finds "Boss"), or by user id.
+   * @param {string} name
+   * @param {Function} callback - (user with .userid, or null)
+   */
+  userByName: function(name, callback) {
+    var db = ftapi.db();
+    var lower = String(name).toLowerCase();
+    db.ref("users").orderByChild('username').equalTo(name).once("value")
+      .then(function(snapshot) {
+        var found = null;
+        snapshot.forEach(function(child) {
+          if (found) return;
+          found = child.val();
+          found.userid = child.key;
+        });
+        if (found) return callback(found);
+        if (!/^[0-9a-z_]{1,22}$/.test(lower)) return ftapi.lookup.userByID(name, callback);
+        return db.ref("nameClaim/" + lower).once("value").then(function(snap) { return snap.val(); }, function() { return null; })
+          .then(function(uid) {
+            if (typeof uid !== "string") return ftapi.lookup.userByID(name, callback);
+            ftapi.lookup.userByID(uid, function(person) {
+              if (person && String(person.username).toLowerCase() === lower) return callback(person);
+              ftapi.lookup.userByID(name, callback);
+            });
+          });
+      }, function(err) {
+        console.error("[firetable] looking up " + name + " failed:", err);
+        callback(null);
       });
   },
   userByID: function(userid, callback) {
-    var searchByID = ftapi.db().ref("users/" + userid);
-    var person = null;
-    searchByID.once("value")
-      .then(function(snapshot2) {
-        var childData2 = snapshot2.val();
-        if (childData2) {
-          var key2 = snapshot2.key;
-          childData2.userid = key2;
-          if (!childData2.username) childData2.username = key2;
-          person = childData2;
-        }
-        return callback(person);
-      });
+    // ids and names can't hold . # $ [ ] (not valid in a database path)
+    if (!userid || /[.#$[\]]/.test(String(userid))) return callback(null);
+    ftapi.utilities.read(ftapi.db().ref("users/" + userid), null, "a profile").then(function(person) {
+      if (person) {
+        person.userid = userid;
+        if (!person.username) person.username = userid;
+      }
+      return callback(person || null);
+    });
   },
   selectedList: function(callback) {
-    var getSelect = ftapi.db().ref("users/" + ftapi.uid + "/selectedList");
-    getSelect.once('value')
-      .then(function(snappy) {
-        var data = snappy.val();
-        if (!data) data = "0";
-        return callback(data);
-      });
+    // can't be read: the Default playlist
+    ftapi.utilities.read(ftapi.db().ref("users/" + ftapi.uid + "/selectedList"), "0", "your selected playlist").then(function(data) {
+      return callback(data || "0");
+    });
   },
+  /**
+   * Your playlists' names without their tracks, as {listID: {name}}: the
+   * database's REST "shallow" read lists the ids, then only each name is
+   * read. The pickers and menus need nothing more, and a big list would
+   * otherwise download in full every time one opens. Falls back to
+   * ftapi.lookup.allLists if the shallow read fails.
+   * @param {Function} callback
+   */
+  listNames: function(callback) {
+    var uid = ftapi.uid;
+    ftapi.utilities.shallowKeys("playlists/" + uid).then(function(ids) {
+      var db = ftapi.db();
+      return Promise.all(Object.keys(ids).map(function(id) {
+        return db.ref("playlists/" + uid + "/" + id + "/name").once("value").then(function(snap) {
+          return [id, snap.val()];
+        });
+      }));
+    }).then(function(pairs) {
+      var names = {};
+      pairs.forEach(function(p) { names[p[0]] = { name: p[1] }; });
+      callback(names);
+    }).catch(function(err) {
+      console.warn("[firetable] listing playlists by name failed (" + (err && err.message) + "); reading them in full");
+      ftapi.lookup.allLists(callback);
+    });
+  },
+  /**
+   * How many tracks a list has, and how many are flagged, without
+   * downloading it: a shallow read gives the track keys, and the
+   * flagged/date index gives just the flagged tracks.
+   * @param {string} listID - "0" is the built-in list (queues/<uid>)
+   * @returns {Promise<{n:number, broken:number, swaps:number}>}
+   */
+  listCount: function(listID) {
+    var path = String(listID) === "0" ? "queues/" + ftapi.uid : "playlists/" + ftapi.uid + "/" + listID + "/list";
+    var flagged = ftapi.db().ref(path).orderByChild("flagged/date").startAt(1).once("value").then(function(snap) {
+      return snap.val() || {};
+    });
+    return Promise.all([ftapi.utilities.shallowKeys(path), flagged]).then(function(res) {
+      var s = firetable.utilities.listStats(res[1]);
+      return { n: Object.keys(res[0]).length, broken: s.broken, swaps: s.swaps };
+    });
+  },
+  /** Every playlist with all its tracks (the playlist overview counts them). */
   allLists: function(callback) {
-    var allQueues = ftapi.db().ref("playlists/" + ftapi.uid);
-    allQueues.once('value')
-      .then(function(allQueuesSnap) {
-        var allPlaylists = allQueuesSnap.val();
-        return callback(allPlaylists);
-      });
+    ftapi.utilities.read(ftapi.db().ref("playlists/" + ftapi.uid), null, "your playlists").then(callback);
   }
 };
 
@@ -1042,6 +1226,47 @@ ftapi.lookup = {
 UTILITY FUNCTIONS
 */
 ftapi.utilities = {
+  /**
+   * The child keys under a path, without their data, via the database's
+   * REST "shallow" read. Rejects if it can't be done (signed out, no fetch,
+   * network, rules).
+   * @param {string} path
+   * @returns {Promise<Object>} {key: true}
+   */
+  shallowKeys: function(path) {
+    var app = firebase.app("firetable");
+    var user = app.auth().currentUser;
+    var base = app.options.databaseURL;
+    if (!ftapi.uid || !user || !base || typeof fetch !== "function") return Promise.reject(new Error("can't read shallow"));
+    return user.getIdToken().then(function(token) {
+      var url = new URL(base);
+      url.pathname = url.pathname.replace(/\/?$/, "/") + path.split("/").map(encodeURIComponent).join("/") + ".json";
+      url.searchParams.set("shallow", "true");
+      url.searchParams.set("auth", token);
+      return fetch(url.toString(), { cache: "no-store" });
+    }).then(function(res) {
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.json();
+    }).then(function(keys) {
+      return keys && typeof keys === "object" ? keys : {};
+    });
+  },
+  /**
+   * Read a ref or query once. Resolves its value, or `fallback` when it can't
+   * be read (network, or the rules refuse it), so callers always get an answer.
+   * @param {Object} ref - Database ref or query
+   * @param {*} fallback
+   * @param {string} what - For the console message
+   * @returns {Promise}
+   */
+  read: function(ref, fallback, what) {
+    return ref.once("value").then(function(snap) {
+      return snap.val();
+    }, function(err) {
+      console.error("[firetable] couldn't read " + what + ":", err);
+      return fallback;
+    });
+  },
   /**
    * Firebase's child-key order: keys that are 32-bit integers first
    * (numerically), then everything else as plain strings.
@@ -1193,8 +1418,14 @@ EventEmitter.prototype.emit = function(event) {
     listeners = this.events[event].slice();
     length = listeners.length;
 
+    // A listener that throws is logged; the others still run (one broken
+    // panel mustn't stop the song, chat or deck from updating)
     for (i = 0; i < length; i++) {
-      listeners[i].apply(this, args);
+      try {
+        listeners[i].apply(this, args);
+      } catch (err) {
+        console.error('[firetable] a "' + event + '" listener failed:', err);
+      }
     }
   }
 };

@@ -37,11 +37,17 @@ var STORAGE = {
   showSongAnnouncements: "firetableShowSongAnnouncements",
   badoop:             "firetableBadoop",
   notifyMentions:     "firetableDTNM",
+  pushMentions:       "firetablePushMentions", // the uid that turned push on here
+  pushEveryone:       "firetablePushEveryone",
+  pushDevice:         "firetablePushDevice",   // this device's id under pushSubs/<uid>/
+  pushSeen:           "firetablePushSeen",
+  pushNudge:          "firetablePushNudge",
   screenControl:      "firetableScreenControl",
   avatarStyle:        "firetableAvatarStyle",
   density:            "firetableDensity",
   shareTyping:        "firetableShareTyping",
   brokenCheck:        "firetableBrokenCheck",
+  listCounts:         "firetableListCounts.", // + uid: last known track counts per list
   lastfmSession:      "ftLastfmSession",
   navView:            "firetableNavView",
   navSide:            "firetableNavSide",
@@ -51,26 +57,6 @@ var STORAGE = {
 // ─── External Service URLs ──────────────────────────────────────────────────
 /** Avatar / Robohash image base URL */
 var AVATAR_BASE_URL = "https://indiediscotheque.com/robots/";
-/**
- * Seasonal room avatar themes, checked against the visitor's local date.
- * months are 1-12. Used only when ftconfigs.avatarset is empty.
- * Override with ftconfigs.avatarSeasons, or set it to false to turn off.
- */
-var AVATAR_SEASONS = [
-  { months: [10], style: "set2" } // October: spooky monsters
-];
-/**
- * Months (1-12) when the stage string lights turn on by themselves, checked
- * against the visitor's local date. The manual "lights" switch in Firebase
- * turns them on any time of year.
- * Override with ftconfigs.lightsMonths, or set it to false to turn off.
- */
-var LIGHTS_MONTHS = [12]; // December
-/**
- * Months (1-12) with subtle snowfall on the stage (visitor's local date).
- * Override with ftconfigs.snowMonths, or set it to false to turn off.
- */
-var SNOW_MONTHS = [1, 2]; // January and February
 /**
  * This site's SoundCloud API proxy (api/soundcloud.php). Handles keyword
  * search, link resolving and playlist import with an OAuth token.
@@ -82,7 +68,11 @@ var SC_API_PROXY_URL = new URL(
   (typeof ftconfigs !== "undefined" && ftconfigs.soundcloudProxyURL) || "api/soundcloud.php",
   document.baseURI
 ).href;
-/** Legacy SoundCloud link resolver (fallback; takes the URL path as ?q=) */
+/**
+ * Legacy SoundCloud link resolver (takes the URL path as ?q=). Keep it: without
+ * a registered SoundCloud app (README "soundcloud") it's how pasted links and
+ * playlist imports work.
+ */
 var SC_RESOLVE_URL = "https://thompsn.com/resolvesc/";
 /** Legacy SoundCloud lookup-by-id proxy (fallback; ?type=…&q=ID) */
 var SC_PROXY_URL = "https://thompsn.com/soundcloud/";

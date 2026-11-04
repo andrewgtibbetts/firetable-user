@@ -92,28 +92,58 @@ firetable.ui.showPlayerControls = function () {
  * Replaces browser alert() pop-ups. Uses a manual popover so it also shows
  * above open dialogs.
  * @param {string} msg
- * @param {"error"|"success"} [type]
+ * @param {"error"|"success"|"notice"} [type]
+ * @param {Object} [opts]
+ * @param {number} [opts.duration] - ms on screen (default 3.5 s, errors 5 s)
+ * @param {{label:string, fn:Function}} [opts.action] - a button in the toast
+ * @param {Function} [opts.onHide] - called once it has gone
  */
-firetable.ui.toast = function (msg, type) {
+firetable.ui.toast = function (msg, type, opts) {
   var el = document.getElementById('ft-toast');
   if (!el || !msg) return;
+  opts = opts || {};
   clearTimeout(firetable.ui._toastTimer);
   clearTimeout(firetable.ui._toastHideTimer);
+  // A toast that replaces one still showing hands on its "gone" callback, so
+  // queued notices carry on once this one has gone too.
+  var prevHide = firetable.ui._toastOnHide;
+  firetable.ui._toastOnHide = (prevHide || opts.onHide) ? function () {
+    if (opts.onHide) opts.onHide();
+    if (prevHide) prevHide();
+  } : null;
   el.textContent = msg;
-  el.classList.remove('is-error', 'is-success', 'show');
+  el.classList.remove('is-error', 'is-success', 'is-notice', 'show', 'has-action');
   if (type) el.classList.add('is-' + type);
+  if (opts.action) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'ft-toast-action';
+    btn.textContent = opts.action.label;
+    btn.addEventListener('click', function () {
+      opts.action.fn();
+      firetable.ui._toastTimer && clearTimeout(firetable.ui._toastTimer);
+      el.classList.remove('show');
+      firetable.ui._toastHideTimer = setTimeout(hideToast, 220);
+    });
+    el.appendChild(btn);
+    el.classList.add('has-action');
+  }
   try {
     if (el.showPopover && !el.matches(':popover-open')) el.showPopover();
   } catch (e) { /* popover unsupported: plain fixed element */ }
   requestAnimationFrame(function () { el.classList.add('show'); });
+  function hideToast() {
+    try {
+      if (el.hidePopover && el.matches(':popover-open')) el.hidePopover();
+    } catch (e) { /* ignore */ }
+    var done = firetable.ui._toastOnHide;
+    firetable.ui._toastOnHide = null;
+    if (done) done();
+  }
   firetable.ui._toastTimer = setTimeout(function () {
     el.classList.remove('show');
-    firetable.ui._toastHideTimer = setTimeout(function () {
-      try {
-        if (el.hidePopover && el.matches(':popover-open')) el.hidePopover();
-      } catch (e) { /* ignore */ }
-    }, 220);
-  }, type === 'error' ? 5000 : 3500);
+    firetable.ui._toastHideTimer = setTimeout(hideToast, 220);
+  }, opts.duration || (type === 'error' ? 5000 : 3500));
 };
 
 /**
@@ -156,7 +186,7 @@ firetable.actions.openStealPicker = function ($btn, target, placement) {
     $("#stealContain").hide();
     return;
   }
-  ftapi.lookup.allLists(function (allPlaylists) {
+  ftapi.lookup.listNames(function (allPlaylists) {
     firetable.ui.fillStealPicker(allPlaylists);
     if (firetable.stealSourceBtn) firetable.stealSourceBtn.removeClass('on');
     $("#grab").removeClass('on');
@@ -812,6 +842,9 @@ firetable.nav = {
     // layout pass (breakpoint changes, tab clicks, logins all call apply)
     if (n.view === 'cards' && n._cardsShown !== true) firetable.actions.cardCase();
     n._cardsShown = n.view === 'cards';
+    // Recent and Fresh download the first time they're opened
+    if (n.view === 'history') ftapi.watchFeed('history');
+    if (n.view === 'discover') ftapi.watchFeed('fresh');
   }
 };
 
@@ -887,15 +920,28 @@ firetable.ui.tooltip = (function () {
       if (!song) return '';
       return '♪ ' + firetable.ui.strip(song.artist + ' - ' + song.title) + (song.dj ? ' · DJ ' + song.dj : '');
     };
+    // A message from before this song needs Recent, which loads on first use
+    var withPlays = function (el, done) {
+      var time = Number(el.getAttribute('data-time'));
+      var now = firetable.song;
+      if (ftapi.feedStarted('history') || (now && now.cid != 0 && time >= Number(now.started))) return done();
+      ftapi.watchFeed('history').then(done);
+    };
     $('#chats').on('mouseenter.ft-tooltip', '.chatTime[data-time]', function () {
-      var text = playingText(this);
-      if (text) show(this, text);
+      var el = this;
+      withPlays(el, function () {
+        var text = playingText(el);
+        if (text && el.matches(':hover')) show(el, text);
+      });
     }).on('mouseleave.ft-tooltip', '.chatTime', hide)
       .on('click.ft-tooltip', '.chatTime[data-time]', function () {
         // touch screens have no hover: tap the time instead
         if (!noHover.matches) return;
-        var text = playingText(this);
-        if (text) firetable.ui.toast(text);
+        var el = this;
+        withPlays(el, function () {
+          var text = playingText(el);
+          if (text) firetable.ui.toast(text);
+        });
       });
 
     // ── Deck: DJ name on plaque hover ──
@@ -1403,7 +1449,7 @@ firetable.ui.setupMiscEvents = function () {
   $("#grab").on("click", function () {
     var isHidden = $("#stealContain").is(":hidden");
     if (isHidden) {
-      ftapi.lookup.allLists(function (allPlaylists) {
+      ftapi.lookup.listNames(function (allPlaylists) {
         firetable.ui.fillStealPicker(allPlaylists);
         if (firetable.stealSourceBtn) firetable.stealSourceBtn.removeClass('on');
         firetable.stealSourceBtn = null;
@@ -1522,6 +1568,9 @@ firetable.ui.setupMiscEvents = function () {
     var modalContentID = $(this).attr('data-modal');
     var targetTab = $(this).attr('data-tab');
     document.getElementById(modalContentID).showModal();
+    if (modalContentID === 'accountSettingsBox' && firetable.ui.updateUsernamePreview) {
+      firetable.ui.updateUsernamePreview();
+    }
     if (targetTab) {
       var $modal = $("#" + modalContentID);
       $modal.find('.tab').removeClass('on');
@@ -1723,6 +1772,7 @@ firetable.ui.setupMiscEvents = function () {
       .catch(function (err) { console.error("[firetable] Avatar style save failed:", err); });
     $("#loggedInUser .ft-avatar").css("background-image",
       "url(" + firetable.utilities.avatarURL(ftapi.uid, firetable.uname, null, firetable.roomAvatarStyle || val) + ")");
+    if (firetable.ui.updateUsernamePreview) firetable.ui.updateUsernamePreview();
   });
 
   // (Search / Done buttons are bound in playlist.js)
@@ -1776,6 +1826,7 @@ firetable.ui.init = function () {
   firetable.ui.setupSearchEvents();
   firetable.ui.setupPlaylistEvents();
   firetable.ui.setupBrokenCheck();
+  firetable.ui.setupSwaps();
   firetable.ui.setupPlaylistIndex();
   firetable.ui.setupPickName();
   firetable.ui.setupProviderSignIn();
@@ -1815,6 +1866,31 @@ firetable.ui.init = function () {
     });
     obs.observe(inner, { childList: true });
   });
+
+  // ── Scrollbar gutters: expose each view's gutter width as --scroll-gutter ──
+  // Lets the Playlists header give up the same strip as its list, and lets the
+  // other views keep an even 1rem inset on both sides. The gutter is 0 with
+  // overlay scrollbars and varies by OS, browser and zoom, so it is measured.
+  (function () {
+    if (typeof ResizeObserver === 'undefined') return;
+    // [scroller, element that carries the variable]
+    [['queuelist', 'queuebox'], ['thehistory', 'thehistory'], ['discover', 'discover'], ['cardsWrap', 'cardsWrap']]
+      .forEach(function (ids) {
+        var el = document.getElementById(ids[0]);
+        var target = document.getElementById(ids[1]);
+        if (!el || !target) return;
+        var last = -1;
+        new ResizeObserver(function () {
+          if (!el.offsetWidth) return; // hidden tab
+          var cs = getComputedStyle(el);
+          var gutter = Math.max(0, el.offsetWidth - el.clientWidth -
+            parseFloat(cs.borderLeftWidth) - parseFloat(cs.borderRightWidth));
+          if (gutter === last) return;
+          last = gutter;
+          target.style.setProperty('--scroll-gutter', gutter + 'px');
+        }).observe(el);
+      });
+  }());
 
   // ── Deck placement: move #ondeck to People tab when stage is narrow ──
   (function () {

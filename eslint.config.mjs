@@ -10,15 +10,16 @@ const appGlobals = {
   MEDIA_YOUTUBE: "readonly", MEDIA_SOUNDCLOUD: "readonly", DEFAULT_VOLUME: "readonly",
   IDLE_TIMEOUT: "readonly", PREVIEW_DURATION: "readonly", ASPECT_RATIO: "readonly",
   COLOR_ORANGE: "readonly", STORAGE: "readonly", AVATAR_BASE_URL: "readonly",
-  AVATAR_SEASONS: "readonly", LIGHTS_MONTHS: "readonly", SNOW_MONTHS: "readonly",
   SC_API_PROXY_URL: "readonly", SC_RESOLVE_URL: "readonly", SC_PROXY_URL: "readonly",
   SC_API_TRACK_URL: "readonly", SC_PLAYER_PAGE_URL: "readonly", LASTFM_PROXY_URL: "readonly", EMOJI_URLS: "readonly",
   CHAT_HISTORY_LIMIT: "readonly", HISTORY_PAGE_SIZE: "readonly",
   SEARCH_MAX_RESULTS: "readonly", IMPORT_PAGE_SIZE: "readonly",
   PREVIEW_BAR_INTERVAL: "readonly", PROGRESS_BAR_INTERVAL: "readonly",
   YT_LOGO_SVG: "readonly", SC_LOGO_SVG: "readonly",
+  // seasons.js
+  AVATAR_SEASONS: "readonly", LIGHTS_MONTHS: "readonly", SNOW_MONTHS: "readonly",
   // other app files
-  ytAPI: "readonly", setup: "readonly",
+  ytAPI: "readonly", setup: "readonly", ftLazy: "readonly",
   // third-party libraries
   firebase: "readonly", twemoji: "readonly", linkifyStr: "readonly", FloatingUIDOM: "readonly",
   IdleJs: "readonly", SC: "readonly", YT: "readonly",
@@ -52,6 +53,12 @@ export default [
     }
   },
   { files: ["js/glitch.js"], languageOptions: { globals: p5Globals } },
+  // the service worker (push notifications)
+  {
+    files: ["sw.js"],
+    languageOptions: { ecmaVersion: 2022, sourceType: "script", globals: { ...globals.serviceworker } },
+    rules: { "no-undef": "error", "no-unused-vars": ["warn", { args: "none", caughtErrors: "none" }] }
+  },
   // fire.js keeps its original animation (one tween lists `ease` twice; the
   // second one is what runs). Left as is so the fire looks exactly the same.
   { files: ["js/fire.js"], rules: { "no-dupe-keys": "off", "no-redeclare": "off" } }

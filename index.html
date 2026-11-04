@@ -8,7 +8,7 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
 	<script src="js/viewport.js?v=01.12.07"></script>
 	<meta name="theme-color" content="#181818" />
-	<link rel="shortcut icon" href="favicon.png" />
+	<link rel="icon" type="image/png" sizes="64x64" href="favicon.png?v=01.12.07" />
 	<!-- Installable web app (Add to Home Screen / Install app) -->
 	<link rel="manifest" href="manifest.webmanifest" />
 	<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
@@ -145,10 +145,11 @@
 					<i class="material-symbols-outlined"> link </i>
 				</a>
 				<span id="tip-songlink" role="tooltip" class="ft-tip" style="position-anchor: --tip-songlink">Song link</span>
-				<button id="skipTrigger" type="button" role="button" class="butt graybutt iconbutt" aria-label="Skip options" popovertarget="skipPopover" tabindex="0" style="anchor-name: --tip-skipTrigger" aria-describedby="tip-skipTrigger">
+				<!-- Only for the DJ playing now, to skip their own track; mods skip from Mod tools (#233) -->
+				<button id="skipTrigger" type="button" role="button" class="butt graybutt iconbutt" aria-label="Skip your track" popovertarget="skipPopover" tabindex="0" style="anchor-name: --tip-skipTrigger" aria-describedby="tip-skipTrigger">
 					<i class="material-symbols-outlined">skip_next</i>
 				</button>
-				<span id="tip-skipTrigger" role="tooltip" class="ft-tip" style="position-anchor: --tip-skipTrigger">Skip options</span>
+				<span id="tip-skipTrigger" role="tooltip" class="ft-tip" style="position-anchor: --tip-skipTrigger">Skip your track</span>
 				<button id="npModBtn" type="button" class="butt graybutt iconbutt" aria-label="Mod tools" aria-haspopup="menu" popovertarget="npModMenu" style="anchor-name: --tip-npModBtn" aria-describedby="tip-npModBtn">
 					<i class="material-symbols-outlined">shield_person</i>
 				</button>
@@ -341,7 +342,6 @@
 						<select id="listpicker" aria-label="Playlist">
 							<option value="0">Default Playlist</option>
 						</select>
-						<span id="listCount" aria-live="polite" hidden></span>
 						<div id="plmanager">
 							<input type="text" placeholder="Name your playlist, hit Enter" id="plmaker" enterkeyhint="done" />
 						</div>
@@ -418,6 +418,14 @@
 			</div>
 			<div id="queuelist" class="scroll-view">
 				<div id="mainqueuestuff">
+					<div id="swapBar" class="swapBar" role="status" hidden>
+						<i class="material-symbols-outlined" aria-hidden="true">swap_horiz</i>
+						<span id="swapBarText"></span>
+						<span class="swapBarActions">
+							<button type="button" id="swapShowBtn" class="butt graybutt small">Show them</button>
+							<button type="button" id="swapAllBtn" class="butt small">Swap all</button>
+						</span>
+					</div>
 					<div id="mainqueue" class="innr">
 						<div class="ft-skeleton" aria-hidden="true" style="display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.5rem;border-bottom:1px solid var(--color-border)"><div class="skel" style="width:2rem;height:2rem;flex-shrink:0;border-radius:3px"></div><div class="skel" style="height:0.75rem;flex:1;max-width:14rem"></div></div>
 						<div class="ft-skeleton" aria-hidden="true" style="display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.5rem;border-bottom:1px solid var(--color-border)"><div class="skel" style="width:2rem;height:2rem;flex-shrink:0;border-radius:3px"></div><div class="skel" style="height:0.75rem;flex:1;max-width:10rem"></div></div>
@@ -510,6 +518,7 @@
 					conversation?
 				</p>
 				<div id="roomPulse" aria-live="polite"></div>
+				<p class="welcomeGetApp" id="welcomeGetApp" hidden><button type="button" class="linkButton showInstallGuide"><i class="material-symbols-outlined" aria-hidden="true">install_mobile</i> Get the app on your phone</button></p>
 				<div class="miniLoginNavOnly"><br/><br/><p>Or <span id="minidiscover">learn more about this station</span>.</p></div>
 			</div>
 			<div id="oauthBox" hidden>
@@ -593,6 +602,49 @@
 		</div>
 	</dialog>
 
+	<!-- How to install the site as an app (js/install.js) -->
+	<dialog id="installAppBox" aria-labelledby="installAppTitle">
+		<div class="modalBox">
+			<div class="modalHeader">
+				<h2 id="installAppTitle">Get the app</h2>
+				<button type="button" class="butt graybutt iconbutt closeModal" title="Close" aria-label="Close"><i class="material-symbols-outlined">close</i></button>
+			</div>
+			<div class="modalContent installGuide">
+				<p id="installIntro">Put the room on your phone's Home Screen. It opens full screen like any other app, and it can send you a notification when someone @mentions you.</p>
+				<p id="installDone" class="installDone" hidden><i class="material-symbols-outlined" aria-hidden="true">check_circle</i> You're using the app. Turn on <b>Push @mentions to this device</b> in Settings to get notifications.</p>
+				<button type="button" id="installNow" class="butt installNow" hidden><i class="material-symbols-outlined" aria-hidden="true">install_mobile</i> Install the app</button>
+
+				<details class="installSteps" data-platform="ios">
+					<summary><i class="material-symbols-outlined" aria-hidden="true">phone_iphone</i> iPhone and iPad</summary>
+					<ol>
+						<li>Open this page in <b>Safari</b> (Chrome and Edge work too on iOS 16.4 or newer).</li>
+						<li>Tap <b>Share</b> <i class="material-symbols-outlined inline" aria-label="the Share icon">ios_share</i> (on newer iPhones it's in the <b>•••</b> menu next to the address).</li>
+						<li>Scroll down and tap <b>Add to Home Screen</b> <i class="material-symbols-outlined inline" aria-hidden="true">add_box</i>.</li>
+						<li>Leave <b>Open as Web App</b> on, then tap <b>Add</b>.</li>
+						<li>Open <b>Indie Disco</b> from your Home Screen and sign in. Notifications only work from the Home Screen app on iPhone and iPad.</li>
+					</ol>
+				</details>
+				<details class="installSteps" data-platform="android">
+					<summary><i class="material-symbols-outlined" aria-hidden="true">android</i> Android</summary>
+					<ol>
+						<li><b>Chrome:</b> tap the menu <i class="material-symbols-outlined inline" aria-label="the menu icon">more_vert</i> and choose <b>Install app</b> (or <b>Add to Home screen</b>, then <b>Install</b>).</li>
+						<li><b>Samsung Internet:</b> tap the menu <i class="material-symbols-outlined inline" aria-label="the menu icon">menu</i>, then <b>Add page to</b> → <b>Home screen</b>.</li>
+						<li><b>Firefox:</b> tap the menu <i class="material-symbols-outlined inline" aria-label="the menu icon">more_vert</i>, then <b>Install</b>.</li>
+						<li>Open <b>Indie Disco</b> from your home screen or app drawer.</li>
+					</ol>
+				</details>
+				<details class="installSteps" data-platform="desktop">
+					<summary><i class="material-symbols-outlined" aria-hidden="true">computer</i> Computer</summary>
+					<ol>
+						<li><b>Chrome or Edge:</b> click the install icon <i class="material-symbols-outlined inline" aria-hidden="true">install_desktop</i> at the right of the address bar (or menu → <b>Cast, save, and share</b> → <b>Install page as app</b>).</li>
+						<li><b>Safari on a Mac:</b> <b>File</b> → <b>Add to Dock</b>.</li>
+					</ol>
+				</details>
+				<p class="installNext">Then, in the app: <b>Settings → Push @mentions to this device</b>.</p>
+			</div>
+		</div>
+	</dialog>
+
 	<dialog id="plIndexBox" aria-labelledby="plIndexTitle">
 		<div class="modalBox">
 			<div class="modalHeader">
@@ -663,7 +715,10 @@
 					<div id="accountSettingsMain"></div>
 					<div class="grabStatsBox"><i class="material-symbols-outlined" aria-hidden="true">playlist_add</i><p id="grabStats" aria-live="polite"></p></div>
 					Change your username to some other thing...<br /><br />
-					<input type="text" placeholder="Change Username" id="changeUsername" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done" />
+					<div class="usernameRow">
+						<span class="ft-avatar" id="usernameAvatarPreview" role="img" aria-label="Your avatar"></span>
+						<input type="text" placeholder="Change Username" id="changeUsername" aria-describedby="usernameResponse" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done" />
+					</div>
 					<div class="responseBox" id="usernameResponse"></div>
 					<div id="avatarPickerSection">
 					<br />
@@ -696,6 +751,11 @@
 				<div id="settings-tab" class="tabPanel active">
 					Set all of the things here on the table.
 					<br /><br />
+					<div class="getAppCard" id="getAppCard" hidden>
+						<i class="material-symbols-outlined" aria-hidden="true">install_mobile</i>
+						<div><b>Get the app</b><span>Install the room on your phone, with @mention notifications.</span></div>
+						<button type="button" class="butt small showInstallGuide">How to install</button>
+					</div>
 					<div class="settingline">
 						<input type="checkbox" id="badoopToggle" name="badoopToggle">
 						<label for="badoopToggle">Badoop sound for @mentions</label>
@@ -704,6 +764,18 @@
 						<input type="checkbox" id="desktopNotifyMentionsToggle" name="DTNMToggle">
 						<label for="desktopNotifyMentionsToggle">Desktop notifications for @mentions</label>
 					</div>
+					<div class="settingline pushSetting">
+						<input type="checkbox" id="pushMentionsToggle" name="pushMentionsToggle">
+						<label for="pushMentionsToggle">Push @mentions to this device</label>
+						<button type="button" id="pushTest" class="butt graybutt small" hidden>Send a test</button>
+					</div>
+					<div class="settingline settingSub" id="pushEveryoneLine">
+						<input type="checkbox" id="pushEveryoneToggle" name="pushEveryoneToggle">
+						<label for="pushEveryoneToggle">Also push @everyone announcements</label>
+					</div>
+					<p id="pushHint" class="settingHint" role="status" hidden></p>
+					<p id="pushHowInstall" class="settingHint" hidden><button type="button" class="linkButton showInstallGuide">How to install the app</button></p>
+					<ul id="pushDevices" class="pushDevices" aria-label="Devices getting push notifications" hidden></ul>
 					<div class="settingline">
 						<input type="checkbox" id="shareTypingToggle" name="shareTypingToggle">
 						<label for="shareTypingToggle">Show others when I'm typing</label>
@@ -833,6 +905,29 @@
 		</div>
 	</div>
 
+	<!-- Swap a broken track for the YouTube Music audio track the bot found (#swap) -->
+	<div id="swapPopover" popover="auto" class="ft-popover">
+		<div id="swapArrow" class="ft-arrow"></div>
+		<div class="ft-popover-box swapBox" role="dialog" aria-labelledby="swapHead">
+			<div class="swapHead" id="swapHead">Working copy on YouTube Music</div>
+			<div class="swapCard">
+				<div class="swapArt" aria-hidden="true"></div>
+				<div class="swapText">
+					<b class="swapName"></b>
+					<span class="swapMeta"></span>
+					<span class="swapKind"><i class="material-symbols-outlined" aria-hidden="true">graphic_eq</i> Audio track, not a video</span>
+				</div>
+			</div>
+			<p class="swapWas"></p>
+			<div class="swapActions">
+				<button type="button" class="butt swapConfirm">Swap</button>
+				<button type="button" class="butt graybutt swapPreview" aria-pressed="false">Preview</button>
+				<a class="butt graybutt swapOpen" target="_blank" rel="noopener">Open</a>
+				<button type="button" class="butt graybutt swapDismiss">Not this one</button>
+			</div>
+		</div>
+	</div>
+
 	<div id="shuffleQueuePopover" popover="auto" class="ft-popover">
 		<div id="shuffleQueueArrow" class="ft-arrow"></div>
 		<div class="ft-popover-box deleteSongPromptBox shuffleQueuePromptBox">
@@ -857,6 +952,7 @@
 	<div id="trackMenuPopover" popover="auto" class="ft-popover">
 		<div id="trackMenuArrow" class="ft-arrow"></div>
 		<div class="ft-popover-box ft-menu" role="menu" aria-label="Track options">
+			<button type="button" role="menuitem" class="butt graybutt" data-act="swap" hidden><i class="material-symbols-outlined">swap_horiz</i> Swap for YouTube Music audio…</button>
 			<button type="button" role="menuitem" class="butt graybutt" data-act="bottom"><i class="material-symbols-outlined">vertical_align_bottom</i> Send to bottom</button>
 			<button type="button" role="menuitem" class="butt graybutt" data-act="add"><i class="material-symbols-outlined">playlist_add</i> Add to playlist</button>
 			<a role="menuitem" class="butt graybutt" data-act="open" target="_blank" rel="noopener"><span class="ft-menu-open-logo" aria-hidden="true"></span> <span class="ft-menu-open-label">Open track</span></a>
@@ -869,6 +965,7 @@
 	<div id="npModMenu" popover="auto" class="ft-popover">
 		<div id="npModArrow" class="ft-arrow"></div>
 		<div class="ft-popover-box ft-menu" role="menu" aria-label="Mod tools">
+			<button type="button" role="menuitem" class="butt graybutt" id="npSkip"><i class="material-symbols-outlined">skip_next</i> Skip</button>
 			<button type="button" role="menuitem" class="butt graybutt" id="npFixTags"><i class="material-symbols-outlined">edit</i> Fix tags</button>
 			<button type="button" role="menuitem" class="butt graybutt" id="npFlag" aria-haspopup="menu"><i class="material-symbols-outlined">flag</i> Flag…</button>
 		</div>
@@ -889,6 +986,13 @@
 		<div id="inboxArrow" class="ft-arrow"></div>
 		<div class="ft-popover-box inboxBox" role="dialog" aria-label="Mentions">
 			<div class="inboxHead"><b>Mentions</b><button type="button" id="inboxClear" class="butt graybutt small">Clear all</button></div>
+			<div id="inboxPush" class="inboxPush" hidden>
+				<i class="material-symbols-outlined" aria-hidden="true">notifications</i>
+				<span id="inboxPushText"></span>
+				<button type="button" id="inboxPushOn" class="butt small">Turn on</button>
+				<button type="button" id="inboxPushHow" class="butt small showInstallGuide" hidden>How?</button>
+				<button type="button" id="inboxPushDismiss" class="row-icon material-symbols-outlined" title="Don't show this again" aria-label="Don't show this again">close</button>
+			</div>
 			<div id="inboxList"></div>
 		</div>
 	</div>
@@ -934,7 +1038,6 @@
 	<script src="https://cdn.jsdelivr.net/npm/@floating-ui/core@1.8.0/dist/floating-ui.core.umd.min.js" integrity="sha384-HNCdK6HYLs4EKIDg2Ml3NdfNMVD/LcFbGXnagRABpWmpJjiEuhrtSIckScRnqDOD" crossorigin="anonymous"></script>
 	<script src="https://cdn.jsdelivr.net/npm/@floating-ui/dom@1.8.0/dist/floating-ui.dom.umd.min.js" integrity="sha384-h02fHnOrZRtL8NvKyMkr2vfTxUr0lTnQdZexzrbPfME4nd74qGfOZ97tbiroJo1Y" crossorigin="anonymous"></script>
 	<script src="js/twemoji.js?v=01.12.07"></script>
-	<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/0.5.7/p5.min.js" integrity="sha384-Nc6Wpwz02/84Nk70wNI+ylNG2C8ynXTyEv7mPrL017fNCyPIP/hiEI1FVXGPuxvQ" crossorigin="anonymous"></script>
 	<script src="https://www.gstatic.com/firebasejs/13.0.0/firebase-app-compat.js" integrity="sha384-TlPrn6ucRHEvycwgV0QgSFXJhJyUwaN4N9iqLak1MWy0/G1VhVwgttErzSlUDfa2" crossorigin="anonymous"></script>
 	<script src="https://www.gstatic.com/firebasejs/13.0.0/firebase-auth-compat.js" integrity="sha384-VRJm5/qS935RWeVBR4A4ZoWzrWZpqPmTgnvM/z2R4A1+mlGxWYVjjlE5ZWXZE2un" crossorigin="anonymous"></script>
 	<script src="https://www.gstatic.com/firebasejs/13.0.0/firebase-database-compat.js" integrity="sha384-LXlcKfZa4dKRGTde8HcsjmxloF7wRHDvUWCV/UFqEsccZaCsOue3gUiDYzknmbW+" crossorigin="anonymous"></script>
@@ -943,8 +1046,6 @@
 	<script src="js/idle.min.js"></script>
 	<script src="https://w.soundcloud.com/player/api.js"></script>
 	<script src="https://www.youtube.com/iframe_api"></script>
-	<script src="https://cdn.jsdelivr.net/npm/pixi.js@4.8.9/dist/pixi.min.js" integrity="sha384-fxjo+jPUZU4vjfxyz9RXr7LgHy6G3mgwntjZP6+T4YWAxd8PVz/necyJjkUDjOKi" crossorigin="anonymous"></script>
-	<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/2.1.3/TweenMax.min.js" integrity="sha384-yXOFkJyq6/vzPbuifPxEbwfurfDPO9+2O3UHh8QfQH8yZCdI/KoyHxxuOk2hwIVL" crossorigin="anonymous"></script>
 	<script src="js/storage.js?v=01.12.07"></script>
 	<script type="text/javascript" src="config.js?v=01.12.07"></script>
 	<script type="text/javascript" src="js/firetable.js?v=01.12.07"></script>
@@ -952,8 +1053,10 @@
 	<script src="js/linkify-string.min.js"></script>
 
 	<!-- Application modules (order matters — each builds on the previous) -->
+	<script type="text/javascript" src="js/seasons.js?v=01.12.07"></script>
 	<script type="text/javascript" src="js/constants.js?v=01.12.07"></script>
 	<script type="text/javascript" src="js/state.js?v=01.12.07"></script>
+	<script type="text/javascript" src="js/lazy.js?v=01.12.07"></script>
 	<script type="text/javascript" src="js/fire.js?v=01.12.07"></script>
 	<script type="text/javascript" src="js/helpers.js?v=01.12.07"></script>
 	<script type="text/javascript" src="js/emoji.js?v=01.12.07"></script>
@@ -961,6 +1064,8 @@
 	<script type="text/javascript" src="js/player.js?v=01.12.07"></script>
 	<script type="text/javascript" src="js/cards.js?v=01.12.07"></script>
 	<script type="text/javascript" src="js/chat.js?v=01.12.07"></script>
+	<script type="text/javascript" src="js/install.js?v=01.12.07"></script>
+	<script type="text/javascript" src="js/push.js?v=01.12.07"></script>
 	<script type="text/javascript" src="js/search.js?v=01.12.07"></script>
 	<script type="text/javascript" src="js/playlist.js?v=01.12.07"></script>
 	<script type="text/javascript" src="js/playlists.js?v=01.12.07"></script>

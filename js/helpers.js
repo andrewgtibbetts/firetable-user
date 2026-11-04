@@ -37,10 +37,18 @@ firetable.utilities = {
    * @param {string} username - Display name
    * @param {string|null} [size="110x110"] - Dimensions (Robohash only)
    * @param {string} [style] - Style key e.g. "robohash:set1" or "dicebear:pixel-art"
+   * @param {boolean} [keepName] - Use `username` as given (trading cards, which
+   *   keep the face they were made with; the settings preview of a new name).
+   *   Otherwise the person's current name wins, so a rename shows everywhere.
    * @returns {string} Full avatar URL
    */
-  avatarURL: function (uid, username, size, style) {
+  avatarURL: function (uid, username, size, style, keepName) {
     size = size || "110x110";
+    if (!keepName && uid) {
+      var current = (ftapi.users && ftapi.users[uid] && ftapi.users[uid].username) ||
+        (firetable.knownNames && firetable.knownNames[uid]);
+      if (current) username = current;
+    }
     if (!style) {
       style = firetable.roomAvatarStyle
            || (ftapi.users && ftapi.users[uid] && ftapi.users[uid].avatarStyle)
@@ -52,6 +60,33 @@ firetable.utilities = {
     }
     var set = style.indexOf("robohash:") === 0 ? style.slice(9) : style;
     return AVATAR_BASE_URL + uid + username + ".png?size=" + size + "&set=" + (set || "set1");
+  },
+
+  /**
+   * Remember everyone's latest name, and redraw every avatar already on the
+   * page (chat, Recent, inbox) for anyone whose name changed, since robohash
+   * faces are made from the name. Avatars opt in with data-avatar-uid (and
+   * data-avatar-size when not the default).
+   * @param {Object} users - uid -> user, as in ftapi.users
+   */
+  trackNames: function (users) {
+    var known = firetable.knownNames = firetable.knownNames || {};
+    var changed = [];
+    for (var uid in users || {}) {
+      if (!Object.prototype.hasOwnProperty.call(users, uid)) continue;
+      var name = users[uid] && users[uid].username;
+      if (!name) continue;
+      if (known[uid] && known[uid] !== name) changed.push(uid);
+      known[uid] = name;
+    }
+    changed.forEach(function (id) {
+      var els = document.querySelectorAll('[data-avatar-uid="' + CSS.escape(id) + '"]');
+      for (var i = 0; i < els.length; i++) {
+        var size = els[i].getAttribute("data-avatar-size") || null;
+        els[i].style.backgroundImage = "url(" + JSON.stringify(firetable.utilities.avatarURL(id, known[id], size)) + ")";
+      }
+    });
+    return changed;
   },
 
   /**
@@ -340,18 +375,30 @@ firetable.utilities = {
     // iPhone/iPad Safari has no Notification API, and Android Chrome throws on
     // `new Notification()`. Never let either break rendering the chat message.
     if (typeof Notification === "undefined") return;
-    try {
-      if (Notification.permission !== "granted") {
-        Notification.requestPermission();
-      } else {
-        new Notification(namebo, {
-          icon: firetable.utilities.avatarURL(chatData.id, namebo),
-          body: chatData.txt
-        });
-      }
-    } catch (e) {
-      firetable.debug && console.log("desktop notification failed:", e);
+    if (Notification.permission !== "granted") {
+      try { Notification.requestPermission(); } catch (e) { /* not from a tap */ }
+      return;
     }
+    // The same tag as the bot's push for this mention, so one replaces the other
+    var options = {
+      icon: firetable.utilities.avatarURL(chatData.id, namebo),
+      body: chatData.txt,
+      tag: chatData.chatID ? "m-" + chatData.chatID : undefined
+    };
+    var direct = function () {
+      try {
+        new Notification(namebo, options);
+      } catch (e) {
+        firetable.debug && console.log("desktop notification failed:", e);
+      }
+    };
+    // Android only shows notifications through the service worker
+    var reg = firetable.push && firetable.push._reg;
+    if (!reg) return direct();
+    reg.then(function (r) {
+      if (!r) return direct();
+      return r.showNotification(namebo, options);
+    }).catch(direct);
   },
 
   // ─── Screen (Video Stage) ────────────────────────────────────────────────

@@ -76,10 +76,92 @@ firetable.utilities.sortedLists = function (allPlaylists) {
   return lists;
 };
 
-/** Option text for a list: a star marks the default. */
+/** Known track counts per list id: { n, broken }. Filled as lists load. */
+firetable.listCounts = firetable.listCounts || {};
+
+/**
+ * Option text for a list: a star marks the default, and the track count
+ * (with any flagged ones) follows the name once it's known.
+ */
 firetable.utilities.listLabel = function (listID, name) {
-  return (firetable.utilities.isDefaultList(listID) ? "★ " : "") + name;
+  var c = firetable.listCounts[String(listID)];
+  var count = c ? " (" + c.n.toLocaleString() + (c.broken ? ", " + c.broken.toLocaleString() + " ⚠" : "") + ")" : "";
+  return (firetable.utilities.isDefaultList(listID) ? "★ " : "") + name + count;
 };
+
+/**
+ * Store a list's track count and update its text in every picker.
+ * @param {string} listID
+ * @param {{n:number, broken:number}} stats
+ */
+firetable.ui.setListCount = function (listID, stats) {
+  listID = String(listID);
+  var prev = firetable.listCounts[listID];
+  if (prev && prev.n === stats.n && prev.broken === stats.broken) return;
+  firetable.listCounts[listID] = { n: stats.n, broken: stats.broken };
+  firetable.ui.relabelList(listID);
+  firetable.actions.saveListCounts();
+};
+
+/** Remember the counts on this device so they show right away next visit. */
+firetable.actions.saveListCounts = function () {
+  clearTimeout(firetable.actions.saveListCounts.timer);
+  firetable.actions.saveListCounts.timer = setTimeout(function () {
+    if (!ftapi.uid) return;
+    try { localStorage.setItem(STORAGE.listCounts + ftapi.uid, JSON.stringify(firetable.listCounts)); } catch (e) { /* storage full or blocked */ }
+  }, 500);
+};
+
+/** Show the counts saved last visit until fresh ones arrive. */
+firetable.actions.restoreListCounts = function () {
+  firetable.listCounts = {};
+  if (!ftapi.uid) return;
+  try {
+    var saved = JSON.parse(localStorage.getItem(STORAGE.listCounts + ftapi.uid) || "{}");
+    Object.keys(saved || {}).forEach(function (id) {
+      var c = saved[id];
+      if (c && typeof c.n === "number") firetable.listCounts[id] = { n: c.n, broken: Number(c.broken) || 0 };
+    });
+  } catch (e) { /* unreadable: start empty */ }
+};
+
+/**
+ * Count every list's tracks (and flagged ones) in the background and put the
+ * numbers in the pickers. A few lists at a time; never downloads whole lists.
+ * @param {Object} allPlaylists - {listID: {name}}
+ */
+firetable.actions.loadListCounts = function (allPlaylists) {
+  var uid = ftapi.uid;
+  var ids = ["0"].concat(Object.keys(allPlaylists || {}));
+  // forget lists that are gone
+  Object.keys(firetable.listCounts).forEach(function (id) {
+    if (ids.indexOf(id) === -1) delete firetable.listCounts[id];
+  });
+  firetable.listCountsLoaded = Date.now();
+  var next = 0;
+  var worker = function () {
+    if (next >= ids.length || ftapi.uid !== uid) return Promise.resolve();
+    var id = ids[next++];
+    return ftapi.lookup.listCount(id).then(function (s) {
+      // the list you're viewing is counted live; don't overwrite it
+      if (ftapi.uid === uid && id !== firetable.liveCountID) firetable.ui.setListCount(id, s);
+    }, function (err) {
+      console.warn("[firetable] couldn't count the tracks in list " + id + ":", err && err.message);
+    }).then(worker);
+  };
+  var workers = [];
+  for (var i = 0; i < Math.min(4, ids.length); i++) workers.push(worker());
+  return Promise.all(workers).then(function () { firetable.actions.saveListCounts(); });
+};
+
+// Recount when you come back to the tab after a while (the bot flags tracks
+// and plays from your lists while you're away).
+document.addEventListener("visibilitychange", function () {
+  if (document.visibilityState !== "visible" || !ftapi.uid || !firetable.listCountsLoaded) return;
+  if (Date.now() - firetable.listCountsLoaded < 15 * 60 * 1000) return;
+  firetable.listCountsLoaded = Date.now();
+  ftapi.lookup.listNames(function (all) { firetable.actions.loadListCounts(all); });
+});
 
 /**
  * Fill a playlist <select>.
@@ -93,7 +175,8 @@ firetable.ui.fillPlaylistSelect = function ($sel, allPlaylists, lead, idPrefix) 
   $sel.empty();
   (lead || []).forEach(function (o) { $sel.append($("<option></option>").val(o.value).text(o.text)); });
   firetable.utilities.sortedLists(allPlaylists).forEach(function (l) {
-    var $o = $("<option></option>").val(l.id).text(firetable.utilities.listLabel(l.id, l.name));
+    if (l.list && !l.builtIn) firetable.listCounts[String(l.id)] = firetable.utilities.listStats(l.list);
+    var $o = $("<option></option>").val(l.id).attr("data-name", l.name).text(firetable.utilities.listLabel(l.id, l.name));
     if (idPrefix && l.id !== "0") $o.attr("id", idPrefix + l.id);
     $sel.append($o);
   });
@@ -107,10 +190,13 @@ firetable.ui.fillPlaylistPickers = function (allPlaylists) {
   firetable.ui.fillPlaylistSelect($("#djlistpicker"), allPlaylists);
 };
 
-/** Update a list's name (and star) in every picker without reloading them. */
+/** Update a list's name (and star, and count) in every picker without reloading them. */
 firetable.ui.relabelList = function (listID, name) {
   $("#listpicker, #djlistpicker, #stealpicker, #mergepicker, #mergepicker2").find("option").each(function () {
-    if (this.value === String(listID)) this.textContent = firetable.utilities.listLabel(listID, name);
+    if (this.value !== String(listID)) return;
+    if (name != null) this.setAttribute("data-name", name);
+    var label = this.getAttribute("data-name");
+    if (label != null) this.textContent = firetable.utilities.listLabel(listID, label);
   });
 };
 
@@ -118,15 +204,16 @@ firetable.ui.relabelList = function (listID, name) {
 
 firetable.plIndex = { lists: [], selected: {} };
 
-/** Track count and how many are flagged. */
+/** Track count, how many are flagged, and how many of those have a swap ready. */
 firetable.utilities.listStats = function (tracks) {
-  var n = 0, broken = 0;
+  var n = 0, broken = 0, swaps = 0;
   Object.keys(tracks || {}).forEach(function (k) {
     if (!tracks[k]) return;
     n++;
     if (tracks[k].flagged) broken++;
+    if (firetable.utilities.activeSwap(tracks[k])) swaps++;
   });
-  return { n: n, broken: broken };
+  return { n: n, broken: broken, swaps: swaps };
 };
 
 firetable.actions.openPlaylistIndex = function () {
@@ -151,6 +238,7 @@ firetable.ui.renderPlaylistIndex = function () {
   lists.forEach(function (l) {
     var tracks = l.builtIn ? firetable.plIndex.defaultTracks : l.list;
     var s = firetable.utilities.listStats(tracks);
+    firetable.ui.setListCount(l.id, s);
     var isDefault = firetable.utilities.isDefaultList(l.id);
     var $row = $('<li class="plx-row" role="listitem"></li>').attr("data-id", l.id)
       .toggleClass("is-default", isDefault).toggleClass("is-dj", l.id === djList).toggleClass("is-viewing", l.id === viewing);
@@ -161,10 +249,9 @@ firetable.ui.renderPlaylistIndex = function () {
     var $main = $('<div class="plx-main"></div>').appendTo($row);
     $('<input type="text" class="plx-name" maxlength="80" spellcheck="false" enterkeyhint="done">')
       .val(l.name).attr("aria-label", "Name of " + l.name).appendTo($main);
-    var meta = s.n + (s.n === 1 ? " track" : " tracks") + (s.broken ? " · " + s.broken + " flagged" : "");
-    var $meta = $('<div class="plx-meta"></div>').text(meta).appendTo($main);
-    if (l.id === djList) $('<span class="plx-tag plx-tag-dj">DJing from</span>').prependTo($meta);
-    if (isDefault) $('<span class="plx-tag plx-tag-default">Default</span>').prependTo($meta);
+    var meta = s.n + (s.n === 1 ? " track" : " tracks") + (s.broken ? " · " + s.broken + " flagged" : "") +
+      (s.swaps ? " · " + s.swaps + (s.swaps === 1 ? " swap" : " swaps") + " ready" : "");
+    $('<div class="plx-meta"></div>').text(meta).appendTo($main);
     var $acts = $('<div class="plx-actions"></div>').appendTo($row);
     $('<button type="button" class="butt graybutt iconbutt plx-star"><i class="material-symbols-outlined">star</i></button>')
       .attr({ "aria-pressed": isDefault ? "true" : "false", "aria-label": isDefault ? l.name + " is your default" : "Make " + l.name + " your default", title: isDefault ? "Your default list" : "Make default" })
@@ -251,7 +338,7 @@ firetable.ui.setupPlaylistIndex = function () {
   var currentOrder = function () {
     return $list.children(".plx-row").map(function () { return this.getAttribute("data-id"); }).get().join(",");
   };
-  var scroller = $list.closest(".modalContent")[0];
+  var scroller = $list[0]; // the list scrolls; the help text and new-list box stay put
   var onDragMove = function (e) {
     if (!drag || e.pointerId !== drag.pointer) return;
     e.preventDefault();
@@ -395,6 +482,9 @@ firetable.ui.setupPlaylistIndex = function () {
 
   ftapi.events.on("loggedOut", function () {
     firetable.plPrefs = { defaultList: "0", defaultName: "", order: {} };
+    firetable.listCounts = {};
+    firetable.listCountsLoaded = 0;
+    firetable.liveCountID = null;
     if (dlg.open) dlg.close();
   });
 };

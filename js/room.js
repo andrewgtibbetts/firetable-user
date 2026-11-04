@@ -135,6 +135,7 @@ function renderHistoryItem(data, $template, containerSel, older) {
   // Metadata
   $histItem.find('.histdj').text(data.dj);
   $histItem.find('.pv-dj-avatar')
+    .attr({ 'data-avatar-uid': data.djid || null, 'data-avatar-size': '40x40' })
     .css('background-image', 'url(' + firetable.utilities.avatarURL(data.djid || data.dj, data.dj, '40x40') + ')')
     .attr('aria-label', data.dj);
   $histItem.find('.dj-avatar-tip').attr('label', data.dj);
@@ -249,6 +250,19 @@ function nowPlayingText(value) {
   return firetable.utilities.htmlEscape(firetable.ui.strip(String(value)));
 }
 
+// "12 plays", or "12 plays · 31 all versions" when the bot counts remixes,
+// live versions and edits of the song together (all_versions_playcount)
+function playCountLabel(ad) {
+  var label = firetable.utilities.pluralize(ad.playcount, "play");
+  if (ad.all_versions_playcount > ad.playcount) label += " · " + ad.all_versions_playcount + " all versions";
+  return label;
+}
+function playedSentence(ad) {
+  var text = "This song has been played " + firetable.utilities.pluralize(ad.playcount, "time");
+  if (ad.all_versions_playcount > ad.playcount) text += " (" + ad.all_versions_playcount + " counting every version)";
+  return nowPlayingText(text) + ".";
+}
+
 // ─── Room Event Binding ──────────────────────────────────────────────────────
 
 /**
@@ -295,7 +309,12 @@ firetable.ui.setupRoomEvents = function () {
     }
   }
 
-  function renderDeckAndQueue(data, activeIdx) {
+  // useAnchor: keep the DJ already shown as playing in the spotlight, wherever
+  // their seat moved to. The table and the spotlight index arrive as separate
+  // updates, so a seat number alone can briefly point at the wrong DJ (someone
+  // who just joined would show as playing, or the on-deck order would start
+  // from the wrong seat).
+  function renderDeckAndQueue(data, activeIdx, useAnchor) {
     var deckHtml = '';
     var onDeckDjs = [];
     var isSelfOnDeck = false;
@@ -317,13 +336,23 @@ firetable.ui.setupRoomEvents = function () {
       // Seats can shift mid-song (a DJ joins or leaves before the spotlight).
       // Unless a song change is still being animated in, keep the highlight on
       // the DJ whose song is playing.
+      var anchored = false;
+      if (useAnchor && firetable.displayedDjId) {
+        for (var a = 0; a < allDjs.length; a++) {
+          if (allDjs[a].id === firetable.displayedDjId) { activeIdx = a; anchored = true; break; }
+        }
+      }
       var songDj = firetable.song && firetable.song.djid;
-      if (songDj && firetable._djActiveTimer === undefined &&
+      if (!anchored && songDj && firetable._djActiveTimer === undefined &&
           !(allDjs[activeIdx] && allDjs[activeIdx].id === songDj)) {
         for (var d = 0; d < allDjs.length; d++) {
           if (allDjs[d].id === songDj) { activeIdx = d; break; }
         }
       }
+
+      if (!(activeIdx >= 0 && activeIdx < allDjs.length)) activeIdx = 0;
+      firetable.displayedDjId = allDjs.length ? allDjs[activeIdx].id : null;
+      firetable.displayedPlaydex = activeIdx;
 
       if (activeIdx < allDjs.length) {
         var activeEntry = allDjs[activeIdx];
@@ -531,17 +560,25 @@ firetable.ui.setupRoomEvents = function () {
   var $historyItem = $('#thehistory .pvbar').remove();
   firetable._historyCache = firetable._historyCache || [];
 
+  // Filter Recent plays. Only the plays are hidden: day headers and hour
+  // markers always stay, so the timeline keeps its shape with no matches and
+  // plays come back as soon as the text matches again. Every row is decided
+  // before any is changed, so a long history is restyled once, not per row.
   function applyHistoryFilter() {
     var q = ($("#histFilter").val() || "").toLowerCase().trim();
-    $("#thehistory .hist-entry").each(function () {
-      var $pvbar = $(this).find('.pvbar');
-      var text = ($pvbar.find('.histlink').text() + " " + $pvbar.find('.histdj').text()).toLowerCase();
-      $(this).toggle(q.length === 0 || text.indexOf(q) !== -1);
-    });
-    $("#thehistory .hist-day-group").each(function () {
-      var hasVisible = $(this).find('.hist-entry:visible').length > 0;
-      $(this).toggle(!q.length || hasVisible);
-    });
+    var root = document.getElementById("thehistory");
+    if (!root) return;
+    var entries = root.querySelectorAll(".hist-entry");
+    var hide = [], shown = 0;
+    for (var i = 0; i < entries.length; i++) {
+      var link = entries[i].querySelector(".histlink");
+      var dj = entries[i].querySelector(".histdj");
+      var text = ((link ? link.textContent : "") + " " + (dj ? dj.textContent : "")).toLowerCase();
+      hide.push(q.length > 0 && text.indexOf(q) === -1);
+      if (!hide[i]) shown++;
+    }
+    for (i = 0; i < entries.length; i++) entries[i].classList.toggle("ft-filtered", hide[i]);
+    root.classList.toggle("overFiltered", q.length > 0 && entries.length > 0 && shown === 0);
   }
 
   $(document).on('input.histfilter', '#histFilter', applyHistoryFilter);
@@ -648,12 +685,20 @@ firetable.ui.setupRoomEvents = function () {
     applyHistoryFilter();
   });
 
+  // body.is-current-dj while your own song plays: shows the stage's skip
+  // button to DJs who aren't mods (mods skip from Mod tools)
+  firetable.ui.markCurrentDj = function () {
+    var song = firetable.song;
+    $("body").toggleClass("is-current-dj", !!(ftapi.uid && song && song.cid != 0 && song.djid === ftapi.uid));
+  };
+
   // ── Mod Check (show edit buttons for mods) ──
   ftapi.events.on('modCheck', function (data) {
     if (data) $(".edittags").show();
     $("body").toggleClass("is-mod", !!data);
   });
-  ftapi.events.on('loggedOut', function () { $("body").removeClass("is-mod"); });
+  ftapi.events.on('loggedOut', function () { $("body").removeClass("is-mod is-current-dj"); });
+  ftapi.events.on('loggedIn', function () { firetable.ui.markCurrentDj(); });
 
   // ── Flag a track (mods): now playing (#125) or a play in Recent (#167) ──
   var flagMenuEl = document.getElementById('flagMenuPopover');
@@ -708,6 +753,14 @@ firetable.ui.setupRoomEvents = function () {
     var idx = $items.index($items.filter(':focus'));
     if (e.key === 'ArrowDown') { e.preventDefault(); $items.eq((idx + 1) % $items.length).focus(); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); $items.eq((idx - 1 + $items.length) % $items.length).focus(); }
+  });
+
+  // Skip is a mod action (#233); the DJ playing now skips their own track
+  // with the stage's skip button instead.
+  $('#npSkip').on('click', function () {
+    npModMenu.hidePopover();
+    if (!firetable.song || firetable.song.cid == 0) return;
+    ftapi.actions.sendBotCommand('!skip');
   });
 
   $('#npFlag').on('click', function () {
@@ -805,6 +858,12 @@ firetable.ui.setupRoomEvents = function () {
   });
   themePill.addEventListener("animationend", function () { themePill.classList.remove("is-new"); });
 
+  // "first 4/14/2013 by matt"; the DJ only when known (plays from before the
+  // room logged its DJs, e.g. Last.fm's, have none)
+  function playLine(word, date, dj) {
+    return word + " " + firetable.utilities.format_date(date) + (dj ? " by " + dj : "");
+  }
+
   // ── Tag Update (metadata correction while song is playing) ──
   ftapi.events.on("tagUpdate", function (data) {
     firetable.debug && console.log("TAG UPDATE", data);
@@ -821,22 +880,21 @@ firetable.ui.setupRoomEvents = function () {
     var showPlaycount = data.adamData.playcount && data.adamData.playcount > 0;
 
     if (data.adamData.last_play) {
-      $("#lastPlay").text("last " + firetable.utilities.format_date(data.adamData.last_play) + " by " + data.adamData.last_play_dj);
+      $("#lastPlay").text(playLine("last", data.adamData.last_play, data.adamData.last_play_dj));
     } else {
       $("#lastPlay").text("");
     }
     if (data.adamData.first_play) {
-      $("#firstPlay").text("first " + firetable.utilities.format_date(data.adamData.first_play) + " by " + data.adamData.first_play_dj);
+      $("#firstPlay").text(playLine("first", data.adamData.first_play, data.adamData.first_play_dj));
     } else {
       $("#firstPlay").text("");
     }
 
     var doTheScrollThing = firetable.utilities.isChatPrettyMuchAtBottom();
     if (showPlaycount) {
-      var count = data.adamData.playcount;
-      $("#playCount").text(firetable.utilities.pluralize(count, "play"));
+      $("#playCount").text(playCountLabel(data.adamData));
       $(".npmsg" + data.cid).last().find(".npmsg").html(
-        'DJ <strong>' + nowPlayingText(nicename) + '</strong> started playing <strong>' + nowPlayingText(data.adamData.track_name) + '</strong> by <strong>' + nowPlayingText(data.adamData.artist) + '</strong><br/>This song has been played ' + firetable.utilities.pluralize(count, "time") + '.'
+        'DJ <strong>' + nowPlayingText(nicename) + '</strong> started playing <strong>' + nowPlayingText(data.adamData.track_name) + '</strong> by <strong>' + nowPlayingText(data.adamData.artist) + '</strong><br/>' + playedSentence(data.adamData)
       );
     } else {
       $("#playCount").text("");
@@ -888,14 +946,14 @@ firetable.ui.setupRoomEvents = function () {
       data.title = firetable.tagUpdate.adamData.track_name;
       data.artist = firetable.tagUpdate.adamData.artist;
       if (firetable.tagUpdate.adamData.last_play) {
-        $("#lastPlay").text("last " + firetable.utilities.format_date(firetable.tagUpdate.adamData.last_play) + " by " + firetable.tagUpdate.adamData.last_play_dj);
+        $("#lastPlay").text(playLine("last", firetable.tagUpdate.adamData.last_play, firetable.tagUpdate.adamData.last_play_dj));
       }
       if (firetable.tagUpdate.adamData.first_play) {
-        $("#firstPlay").text("first " + firetable.utilities.format_date(firetable.tagUpdate.adamData.first_play) + " by " + firetable.tagUpdate.adamData.first_play_dj);
+        $("#firstPlay").text(playLine("first", firetable.tagUpdate.adamData.first_play, firetable.tagUpdate.adamData.first_play_dj));
       }
       if (firetable.tagUpdate.adamData.playcount > 0) {
         showPlaycount = true;
-        $("#playCount").text(firetable.utilities.pluralize(firetable.tagUpdate.adamData.playcount, "play"));
+        $("#playCount").text(playCountLabel(firetable.tagUpdate.adamData));
       }
     }
 
@@ -929,6 +987,7 @@ firetable.ui.setupRoomEvents = function () {
     var secSince = Math.floor(timeSince / 1000);
     var timeLeft = data.duration - secSince;
     firetable.song = data;
+    firetable.ui.markCurrentDj();
     firetable.media.songChanged();
     firetable.ui.applyBeat();
     firetable.debug && console.log("NEW TRACK", data);
@@ -1012,7 +1071,7 @@ firetable.ui.setupRoomEvents = function () {
         var npmsgTime = firetable.utilities.format_time(Date.now());
         var npmsgHTML;
         if (showPlaycount) {
-          npmsgHTML = '<div class="newChat nowplayn npmsg' + nowPlayingText(data.cid) + '"><span class="material-symbols-outlined">music_note_2</span><div class="npmsg">DJ <strong>' + nowPlayingText(nicename) + '</strong> started playing <strong>' + nowPlayingText(data.title) + '</strong> by <strong>' + nowPlayingText(data.artist) + '</strong><br/>This song has been played ' + firetable.utilities.pluralize(firetable.tagUpdate.adamData.playcount, "time") + '.</div><span class="chatTime npmsg-time">' + npmsgTime + '</span><span class="npmsg-fires"></span>';
+          npmsgHTML = '<div class="newChat nowplayn npmsg' + nowPlayingText(data.cid) + '"><span class="material-symbols-outlined">music_note_2</span><div class="npmsg">DJ <strong>' + nowPlayingText(nicename) + '</strong> started playing <strong>' + nowPlayingText(data.title) + '</strong> by <strong>' + nowPlayingText(data.artist) + '</strong><br/>' + playedSentence(firetable.tagUpdate.adamData) + '</div><span class="chatTime npmsg-time">' + npmsgTime + '</span><span class="npmsg-fires"></span>';
         } else {
           npmsgHTML = '<div class="newChat nowplayn npmsg' + nowPlayingText(data.cid) + '"><span class="material-symbols-outlined">music_note_2</span><div class="npmsg">DJ <strong>' + nowPlayingText(nicename) + '</strong> started playing <strong>' + nowPlayingText(data.title) + '</strong> by <strong>' + nowPlayingText(data.artist) + '</strong></div><span class="chatTime npmsg-time">' + npmsgTime + '</span><span class="npmsg-fires"></span>';
         }
@@ -1195,7 +1254,7 @@ firetable.ui.setupRoomEvents = function () {
   ftapi.events.on("tableChanged", function (data) {
     firetable.tableData = data;
     var _activeIdx = (firetable.displayedPlaydex !== undefined) ? firetable.displayedPlaydex : firetable.playdex;
-    renderDeckAndQueue(data, _activeIdx);
+    renderDeckAndQueue(data, _activeIdx, true);
 
     $('#usersWaitlist').off('click.wladdme').on('click.wladdme', '.waitlist-addme-row .ft-avatar, .wlAddMeBtn', function () {
       ftapi.actions.sendBotCommand('!addme');
