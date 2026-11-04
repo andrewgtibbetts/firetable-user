@@ -321,6 +321,104 @@ select::-ms-expand {
     select::picker-icon {
         display: none;
     }
+
+    /* ── Rich playlist pickers: #listpicker and #djlistpicker ─────────────── */
+
+    /* DJ picker: left padding makes room for the "DJ Playlist:" label overlay */
+    #djlistpicker {
+        padding-inline-start: 7em;
+        overflow: clip;
+        overflow-clip-margin: content-box;
+    }
+
+    /* Options in both pickers lay out as a flex row */
+    #listpicker option,
+    #djlistpicker option {
+        display: flex;
+        align-items: center;
+        gap: var(--pad2);
+        padding-block: var(--pad2);
+        padding-inline: var(--pad3);
+    }
+
+    /* ── Option parts ── */
+
+    /* Gold star = default playlist */
+    .opt-star {
+        flex-shrink: 0;
+        color: #f5c33a;
+        font-size: 0.8em;
+        line-height: 1;
+    }
+
+    /* Playlist name fills available space and truncates */
+    .opt-name {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* Stats group: track count + flagged count, pushed to the right */
+    .opt-meta {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        flex-shrink: 0;
+        margin-left: auto;
+    }
+
+    /* Track count: muted pill — it's informational, not urgent */
+    .opt-count {
+        font-size: 0.7rem;
+        font-variant-numeric: tabular-nums;
+        color: var(--color-text-muted);
+        background: rgba(255, 255, 255, 0.07);
+        padding: 0.1em 0.45em;
+        border-radius: 99px;
+        line-height: 1.4;
+    }
+
+    /* Flagged count: accent-colored warning pill — needs attention */
+    .opt-broken {
+        font-size: 0.7rem;
+        font-variant-numeric: tabular-nums;
+        font-weight: 700;
+        color: var(--color-accent);
+        background: color-mix(in srgb, var(--color-accent) 18%, transparent);
+        padding: 0.1em 0.45em;
+        border-radius: 99px;
+        line-height: 1.4;
+    }
+
+    /* DJ source badge in #listpicker: small accent pill, identifies DJ source */
+    .opt-dj-badge {
+        flex-shrink: 0;
+        font-size: 0.65rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        color: var(--color-on-accent);
+        background: var(--color-accent);
+        padding: 0.12em 0.5em;
+        border-radius: 99px;
+        line-height: 1.4;
+        opacity: 0.75;
+    }
+
+    /* Hidden spans take no space */
+    .opt-star[hidden],
+    .opt-count[hidden],
+    .opt-broken[hidden],
+    .opt-dj-badge[hidden] {
+        display: none;
+    }
+
+    /* Picker width: at least as wide as the trigger */
+    #listpicker::picker(select),
+    #djlistpicker::picker(select) {
+        min-width: anchor-size(width);
+    }
 }
 
 input:not([type="checkbox"]):not([type="radio"]) {

@@ -290,6 +290,7 @@ firetable.actions.loggedIn = function (user) {
       });
       $("#djlistpicker").change(function () {
         ftapi.actions.switchDjList($(this).val());
+        firetable.ui.syncDjIndicator();
       });
 
       // Initialize both pickers after handlers are attached.
