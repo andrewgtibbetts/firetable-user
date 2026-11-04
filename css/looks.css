@@ -316,34 +316,50 @@ select::-ms-expand {
 
     /* ── Rich playlist pickers (#listpicker & #djlistpicker) ──────────────────
      *
-     * Two selects, two purposes:
-     *   #djlistpicker  = "DJ from"  — which list feeds the DJ queue
-     *   #listpicker    = "Viewing"  — which list you're browsing/editing
-     *
-     * Anatomy of each option (and the button face via <selectedcontent>):
-     *
-     *   [★]  Name                            [count]  [broken⚠]
-     *
-     * #listpicker only adds a small [DJ] badge to whichever option
-     * is also the active DJ source, so you never lose track of which
-     * list is playing.  The badge is hidden in the closed-button face.
+     * Correct anatomy:
+     *   <select>
+     *     <button type="button">      ← the trigger face (styled here)
+     *       <selectedcontent>         ← auto-mirrors selected option's HTML
+     *         <span .opt-star>        ← gold ★ if default
+     *         <span .opt-name>        ← name, truncates
+     *         <span .opt-meta>        ← stats row
+     *           <span .opt-count>     ← muted track count pill
+     *           <span .opt-broken>    ← orange flagged pill (if any)
+     *       </selectedcontent>
+     *     </button>
+     *     <option> ...                ← dropdown items (display: flex)
+     *   </select>
      * ─────────────────────────────────────────────────────────────────────── */
 
-    /* The <selectedcontent> element mirrors the selected option's HTML into the
-       button face. Give it flex layout so the spans don't concatenate as text. */
-    #listpicker selectedcontent,
-    #djlistpicker selectedcontent {
+    /* The trigger button — flex row so spans don't concatenate as inline text */
+    #listpicker > button,
+    #djlistpicker > button {
         display: flex;
         align-items: center;
-        gap: 0.45em;
+        gap: 0.5em;
         flex: 1;
+        width: 100%;
         min-width: 0;
         overflow: hidden;
+        background: transparent;
+        border: none;
+        padding: 0;
+        margin: 0;
+        color: inherit;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
     }
 
-    /* DJ picker: left padding clears the "DJ Playlist:" absolute-label overlay */
-    #djlistpicker {
+    /* DJ picker: push content past the "DJ Playlist:" absolute label */
+    #djlistpicker > button {
         padding-inline-start: 7em;
+    }
+
+    /* <selectedcontent> dissolves into the button's flex context */
+    #listpicker > button selectedcontent,
+    #djlistpicker > button selectedcontent {
+        display: contents;
     }
 
     /* Dropdown options */
@@ -363,9 +379,7 @@ select::-ms-expand {
         background-color: var(--color-bg-t3);
     }
 
-    /* ── Shared span atoms (apply in both the option and the button face) ── */
-
-    /* Gold ★ — only rendered when the option is the default list */
+    /* Gold ★ — visible only for the default list */
     .opt-star {
         flex-shrink: 0;
         color: #f5c33a;
@@ -374,7 +388,7 @@ select::-ms-expand {
         user-select: none;
     }
 
-    /* Playlist name: fills, truncates with ellipsis */
+    /* Name — grows, truncates */
     .opt-name {
         flex: 1;
         min-width: 0;
@@ -383,7 +397,7 @@ select::-ms-expand {
         text-overflow: ellipsis;
     }
 
-    /* Stats container — pushed to the far right */
+    /* Stats row pushed right */
     .opt-meta {
         display: flex;
         align-items: center;
@@ -392,7 +406,7 @@ select::-ms-expand {
         margin-left: auto;
     }
 
-    /* Track count — muted pill, purely informational */
+    /* Muted track count pill */
     .opt-count {
         display: inline-block;
         font-size: 0.7em;
@@ -404,7 +418,7 @@ select::-ms-expand {
         background: rgba(255, 255, 255, 0.08);
     }
 
-    /* Flagged/broken count — orange warning pill, needs action */
+    /* Orange flagged count pill */
     .opt-broken {
         display: inline-block;
         font-size: 0.7em;
@@ -417,8 +431,7 @@ select::-ms-expand {
         background: color-mix(in srgb, var(--color-accent) 16%, transparent);
     }
 
-    /* DJ source badge — small accent pill, only in #listpicker dropdown.
-       Hidden on the button face so it doesn't crowd the closed select. */
+    /* DJ badge — dropdown only, hidden in button face */
     .opt-dj-badge {
         display: inline-block;
         font-size: 0.65em;
@@ -432,20 +445,13 @@ select::-ms-expand {
         background: color-mix(in srgb, var(--color-accent) 70%, transparent);
     }
 
-    /* ── Button-face overrides (selectedcontent context) ── */
-
-    /* Hide the DJ badge in the closed button — it's for the dropdown only */
-    selectedcontent .opt-dj-badge {
+    /* Hide DJ badge inside the button face */
+    #listpicker > button .opt-dj-badge,
+    #djlistpicker > button .opt-dj-badge {
         display: none;
     }
 
-    /* Slightly smaller stats on the compact button face */
-    selectedcontent .opt-count,
-    selectedcontent .opt-broken {
-        font-size: 0.68em;
-    }
-
-    /* ── Hidden state — collapsed spans take zero space ── */
+    /* Hidden spans */
     .opt-star[hidden],
     .opt-count[hidden],
     .opt-broken[hidden],
@@ -453,7 +459,7 @@ select::-ms-expand {
         display: none;
     }
 
-    /* Dropdown at least as wide as its trigger */
+    /* Picker at least as wide as the trigger */
     #listpicker::picker(select),
     #djlistpicker::picker(select) {
         min-width: anchor-size(width);

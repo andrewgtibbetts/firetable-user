@@ -214,17 +214,22 @@ firetable.ui.buildRichOption = function (listID, name) {
 };
 
 /**
- * Inject a <selectedcontent> element into #listpicker and #djlistpicker so
- * the browser mirrors the selected option's rich HTML into the button face.
- * Called once; safe to call again (idempotent).
+ * Inject <button><selectedcontent></selectedcontent></button> into
+ * #listpicker and #djlistpicker.  The spec requires <selectedcontent>
+ * to be inside a <button> child of <select>; without the <button>
+ * the browser has no trigger element to apply flex layout to.
+ * Idempotent — safe to call more than once.
  */
 firetable.ui.setupRichSelects = function () {
   if (!_richSelect) return;
   ["#listpicker", "#djlistpicker"].forEach(function (id) {
     var sel = document.querySelector(id);
-    if (!sel || sel.querySelector("selectedcontent")) return;
+    if (!sel || sel.querySelector(":scope > button")) return;
+    var btn = document.createElement("button");
+    btn.type = "button";
     var sc = document.createElement("selectedcontent");
-    sel.insertBefore(sc, sel.firstChild);
+    btn.appendChild(sc);
+    sel.insertBefore(btn, sel.firstChild);
   });
 };
 
