@@ -163,101 +163,6 @@ document.addEventListener("visibilitychange", function () {
   ftapi.lookup.listNames(function (all) { firetable.actions.loadListCounts(all); });
 });
 
-// Detect support for the customizable select API once (Chrome 135+).
-var _richSelect = typeof CSS !== "undefined" && CSS.supports && CSS.supports("appearance", "base-select");
-
-/**
- * Build a rich <option> for #listpicker / #djlistpicker when
- * appearance: base-select is supported. Spans carry the star indicator,
- * name, track count, and flagged count as separately-styled elements.
- * @param {string} listID
- * @param {string} name
- * @returns {HTMLOptionElement}
- */
-firetable.ui.buildRichOption = function (listID, name) {
-  var el = document.createElement("option");
-  el.value = String(listID);
-  el.setAttribute("data-name", name);
-
-  var isDef = firetable.utilities.isDefaultList(listID);
-  var c = firetable.listCounts[String(listID)] || {};
-
-  var star = document.createElement("span");
-  star.className = "opt-star";
-  star.setAttribute("aria-hidden", "true");
-  star.textContent = "★";
-  if (!isDef) star.hidden = true;
-  el.appendChild(star);
-
-  var nameSpan = document.createElement("span");
-  nameSpan.className = "opt-name";
-  nameSpan.textContent = name;
-  el.appendChild(nameSpan);
-
-  var meta = document.createElement("span");
-  meta.className = "opt-meta";
-
-  var countSpan = document.createElement("span");
-  countSpan.className = "opt-count";
-  countSpan.textContent = c.n != null ? c.n.toLocaleString() : "";
-  countSpan.hidden = c.n == null;
-  meta.appendChild(countSpan);
-
-  var brokenSpan = document.createElement("span");
-  brokenSpan.className = "opt-broken";
-  brokenSpan.textContent = c.broken ? c.broken.toLocaleString() + " ⚠" : "";
-  brokenSpan.hidden = !c.broken;
-  meta.appendChild(brokenSpan);
-
-  el.appendChild(meta);
-  return el;
-};
-
-/**
- * Inject <button><selectedcontent></selectedcontent></button> into
- * #listpicker and #djlistpicker.  The spec requires <selectedcontent>
- * to be inside a <button> child of <select>; without the <button>
- * the browser has no trigger element to apply flex layout to.
- * Idempotent — safe to call more than once.
- */
-firetable.ui.setupRichSelects = function () {
-  if (!_richSelect) return;
-  ["#listpicker", "#djlistpicker"].forEach(function (id) {
-    var sel = document.querySelector(id);
-    if (!sel || sel.querySelector(":scope > button")) return;
-    var btn = document.createElement("button");
-    btn.type = "button";
-    var sc = document.createElement("selectedcontent");
-    btn.appendChild(sc);
-    sel.insertBefore(btn, sel.firstChild);
-  });
-};
-
-/**
- * Mark the option in #listpicker that matches the current DJ list with the
- * .is-dj-opt class and a small "DJ" badge span, so users can see at a glance
- * which list they're also DJing from. Only runs when rich selects are active.
- */
-firetable.ui.syncDjIndicator = function () {
-  if (!_richSelect) return;
-  var djID = String($("#djlistpicker").val() || "0");
-  $("#listpicker option").each(function () {
-    var isDj = this.value === djID;
-    this.classList.toggle("is-dj-opt", isDj);
-    var badge = this.querySelector(".opt-dj-badge");
-    if (isDj && !badge) {
-      badge = document.createElement("span");
-      badge.className = "opt-dj-badge";
-      badge.setAttribute("aria-label", "Also your DJ source list");
-      badge.setAttribute("aria-hidden", "true");
-      badge.textContent = "DJ";
-      this.appendChild(badge);
-    } else if (badge) {
-      badge.hidden = !isDj;
-    }
-  });
-};
-
 /**
  * Fill a playlist <select>.
  * @param {jQuery} $sel
@@ -266,19 +171,12 @@ firetable.ui.syncDjIndicator = function () {
  * @param {string} [idPrefix] - id for each option (id + listID)
  */
 firetable.ui.fillPlaylistSelect = function ($sel, allPlaylists, lead, idPrefix) {
-  var isRichPicker = _richSelect && ($sel[0].id === "listpicker" || $sel[0].id === "djlistpicker");
   var keep = $sel.val();
-  // Preserve <selectedcontent>; only remove option/optgroup children.
-  $sel.find("option, optgroup").remove();
+  $sel.empty();
   (lead || []).forEach(function (o) { $sel.append($("<option></option>").val(o.value).text(o.text)); });
   firetable.utilities.sortedLists(allPlaylists).forEach(function (l) {
     if (l.list && !l.builtIn) firetable.listCounts[String(l.id)] = firetable.utilities.listStats(l.list);
-    var $o;
-    if (isRichPicker) {
-      $o = $(firetable.ui.buildRichOption(l.id, l.name));
-    } else {
-      $o = $("<option></option>").val(l.id).attr("data-name", l.name).text(firetable.utilities.listLabel(l.id, l.name));
-    }
+    var $o = $("<option></option>").val(l.id).attr("data-name", l.name).text(firetable.utilities.listLabel(l.id, l.name));
     if (idPrefix && l.id !== "0") $o.attr("id", idPrefix + l.id);
     $sel.append($o);
   });
@@ -288,10 +186,8 @@ firetable.ui.fillPlaylistSelect = function ($sel, allPlaylists, lead, idPrefix) 
 /** Fill the "view" and "DJ from" pickers. */
 firetable.ui.fillPlaylistPickers = function (allPlaylists) {
   firetable.allPlaylists = allPlaylists || {};
-  firetable.ui.setupRichSelects();
   firetable.ui.fillPlaylistSelect($("#listpicker"), allPlaylists, null, "pdopt");
   firetable.ui.fillPlaylistSelect($("#djlistpicker"), allPlaylists);
-  firetable.ui.syncDjIndicator();
 };
 
 /** Update a list's name (and star, and count) in every picker without reloading them. */
@@ -300,22 +196,7 @@ firetable.ui.relabelList = function (listID, name) {
     if (this.value !== String(listID)) return;
     if (name != null) this.setAttribute("data-name", name);
     var label = this.getAttribute("data-name");
-    if (label == null) return;
-
-    var nameSpan = this.querySelector(".opt-name");
-    if (nameSpan) {
-      // Rich option: update each constituent part.
-      nameSpan.textContent = label;
-      var star = this.querySelector(".opt-star");
-      if (star) star.hidden = !firetable.utilities.isDefaultList(listID);
-      var c = firetable.listCounts[String(listID)] || {};
-      var countSpan = this.querySelector(".opt-count");
-      if (countSpan) { countSpan.textContent = c.n != null ? c.n.toLocaleString() : ""; countSpan.hidden = c.n == null; }
-      var brokenSpan = this.querySelector(".opt-broken");
-      if (brokenSpan) { brokenSpan.textContent = c.broken ? c.broken.toLocaleString() + " ⚠" : ""; brokenSpan.hidden = !c.broken; }
-    } else {
-      this.textContent = firetable.utilities.listLabel(listID, label);
-    }
+    if (label != null) this.textContent = firetable.utilities.listLabel(listID, label);
   });
 };
 

@@ -280,12 +280,17 @@ select::-ms-expand {
 @supports (appearance: base-select) {
     select {
         appearance: base-select;
+        /* Keep the SVG bg caret — just let base-select handle the picker.
+           Right padding stays clear of the caret so long names don't run under it. */
         background-color: var(--color-bg-t3);
         padding-right: 2rem;
+        /* base-select lays the label out as a flex item, so text-overflow
+           can't apply; clip at the content edge so it never runs under the caret */
         overflow: clip;
         overflow-clip-margin: content-box;
     }
 
+    /* The open dropdown surface */
     select::picker(select) {
         background-color: var(--color-bg-t2);
         color: var(--color-text-light);
@@ -295,6 +300,7 @@ select::-ms-expand {
         padding: var(--pad1) 0;
     }
 
+    /* Individual options */
     select option {
         padding-block: var(--pad1);
         padding-inline: var(--pad2);
@@ -306,167 +312,14 @@ select::-ms-expand {
         background-color: var(--color-bg-t3);
     }
 
+    /* Checkmark next to the selected item */
     select::checkmark {
         color: var(--color-accent);
     }
 
+    /* Hide the native picker-icon — our background-image caret replaces it */
     select::picker-icon {
         display: none;
-    }
-
-    /* ── Rich playlist pickers (#listpicker & #djlistpicker) ──────────────────
-     *
-     * Correct anatomy:
-     *   <select>
-     *     <button type="button">      ← the trigger face (styled here)
-     *       <selectedcontent>         ← auto-mirrors selected option's HTML
-     *         <span .opt-star>        ← gold ★ if default
-     *         <span .opt-name>        ← name, truncates
-     *         <span .opt-meta>        ← stats row
-     *           <span .opt-count>     ← muted track count pill
-     *           <span .opt-broken>    ← orange flagged pill (if any)
-     *       </selectedcontent>
-     *     </button>
-     *     <option> ...                ← dropdown items (display: flex)
-     *   </select>
-     * ─────────────────────────────────────────────────────────────────────── */
-
-    /* The trigger button — flex row so spans lay out correctly */
-    #listpicker > button,
-    #djlistpicker > button {
-        display: flex;
-        align-items: center;
-        gap: 0.5em;
-        flex: 1;
-        min-width: 0;
-        overflow: hidden;
-        background: transparent;
-        border: none;
-        padding: 0;
-        color: inherit;
-        font: inherit;
-        cursor: pointer;
-    }
-
-    /* listpicker button: left breathing room (no label overlay, just a margin) */
-    #listpicker > button {
-        padding-inline-start: var(--pad2);
-    }
-
-    /* DJ picker: push content past the "DJ Playlist:" absolute label.
-       NOTE: the select's own padding-inline-start:7em is cancelled below,
-       at the main #djlistpicker rule, so this is the only offset. */
-    #djlistpicker > button {
-        padding-inline-start: 7em;
-    }
-
-    /* <selectedcontent> dissolves into the button's flex context */
-    #listpicker > button selectedcontent,
-    #djlistpicker > button selectedcontent {
-        display: contents;
-    }
-
-    /* Dropdown options */
-    #listpicker option,
-    #djlistpicker option {
-        display: flex;
-        align-items: center;
-        gap: 0.5em;
-        padding-block: 0.55em;
-        padding-inline: 0.85em;
-        color: var(--color-text-light);
-        background-color: var(--color-bg-t2);
-    }
-
-    #listpicker option:is(:hover, :focus-visible, :checked),
-    #djlistpicker option:is(:hover, :focus-visible, :checked) {
-        background-color: var(--color-bg-t3);
-    }
-
-    /* Gold ★ — visible only for the default list */
-    .opt-star {
-        flex-shrink: 0;
-        color: #f5c33a;
-        font-size: 0.8em;
-        line-height: 1;
-        user-select: none;
-    }
-
-    /* Name — grows, truncates */
-    .opt-name {
-        flex: 1;
-        min-width: 0;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    /* Stats row pushed right */
-    .opt-meta {
-        display: flex;
-        align-items: center;
-        gap: 0.3em;
-        flex-shrink: 0;
-        margin-left: auto;
-    }
-
-    /* Muted track count pill */
-    .opt-count {
-        display: inline-block;
-        font-size: 0.7em;
-        font-variant-numeric: tabular-nums;
-        line-height: 1.5;
-        padding: 0 0.45em;
-        border-radius: 99px;
-        color: var(--color-text-muted);
-        background: rgba(255, 255, 255, 0.08);
-    }
-
-    /* Orange flagged count pill */
-    .opt-broken {
-        display: inline-block;
-        font-size: 0.7em;
-        font-variant-numeric: tabular-nums;
-        font-weight: 700;
-        line-height: 1.5;
-        padding: 0 0.45em;
-        border-radius: 99px;
-        color: var(--color-accent);
-        background: color-mix(in srgb, var(--color-accent) 16%, transparent);
-    }
-
-    /* DJ badge — dropdown only, hidden in button face */
-    .opt-dj-badge {
-        display: inline-block;
-        font-size: 0.65em;
-        font-weight: 800;
-        letter-spacing: 0.07em;
-        line-height: 1.5;
-        padding: 0 0.55em;
-        border-radius: 99px;
-        flex-shrink: 0;
-        color: var(--color-on-accent);
-        background: color-mix(in srgb, var(--color-accent) 70%, transparent);
-    }
-
-    /* Hide DJ badge inside the button face */
-    #listpicker > button .opt-dj-badge,
-    #djlistpicker > button .opt-dj-badge {
-        display: none;
-    }
-
-    /* Hidden spans */
-    .opt-star[hidden],
-    .opt-count[hidden],
-    .opt-broken[hidden],
-    .opt-dj-badge[hidden] {
-        display: none;
-    }
-
-    /* Picker at least as wide as the trigger */
-    #listpicker::picker(select),
-    #djlistpicker::picker(select) {
-        min-width: anchor-size(width);
     }
 }
 
@@ -3492,16 +3345,6 @@ a.importLinkCheck {
     border-top-color: rgba(255,255,255,0.1);
     border-radius: var(--radius-md);
     color: rgba(255, 255, 255, 0.7);
-}
-
-/* When appearance:base-select is active, the <button> child handles the 7em
-   label offset. Cancel the select's own left padding so content is not
-   indented twice (select 7em + button 7em = 14em). This rule comes after the
-   main #djlistpicker rule so it wins the same-specificity cascade. */
-@supports (appearance: base-select) {
-    #djlistpicker {
-        padding-inline-start: 0;
-    }
 }
 
 #deckQueue {
