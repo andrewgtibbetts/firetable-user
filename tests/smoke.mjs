@@ -81,6 +81,27 @@ try {
   check(loaded("/s/player/") || loaded("www-widgetapi"), "YouTube's player API loaded under the policy");
   check(!loaded("pixi.min.js") && !loaded("p5.min.js") && !loaded("TweenMax.min.js"), "the stage effects' libraries aren't loaded with the page");
 
+  console.log("-- the song's tempo leads the plays line");
+  await put("/tagUpdate", { cid: youtubeSong.cid, adamData: { track_name: "Smoke Song", artist: "Smoke Artist", playcount: 67 } });
+  await put("/songBpm", { started: youtubeSong.started, bpm: 111.3, src: "deezer" });
+  await page.waitForFunction(() => !document.getElementById("npBpm").hidden, null, { timeout: 10000 }).catch(() => {});
+  // as drawn: the ", " between them is CSS, which innerText leaves out
+  const stats = await page.evaluate(() => {
+    const count = document.getElementById("playCount");
+    const sep = getComputedStyle(count, "::before").content.replace(/^"|"$/g, "");
+    return document.getElementById("npBpm").textContent + (sep === "none" ? "" : sep) + count.textContent;
+  }).catch(() => "");
+  check(stats === "111 BPM, 67 plays", "\"111 BPM, 67 plays\" (" + JSON.stringify(stats) + ")");
+  const bob = await page.evaluate(() => ({ on: document.body.classList.contains("has-beat"),
+    bop: getComputedStyle(document.documentElement).getPropertyValue("--bop").trim(),
+    dur: (document.querySelector(".avtr.animate") && getComputedStyle(document.querySelector(".avtr.animate")).animationDuration) || "" }));
+  // 111.3 BPM: a beat is 0.539 s, so one bob (two beats) takes 1.078 s
+  check(bob.on && bob.bop === "1.0782s" && (!bob.dur || bob.dur === "1.0782s"), "the DJ bobs at half the tempo, one bob every two beats (" + JSON.stringify(bob) + ")");
+  if (process.env.SHOTS) await page.locator("#nowplaying").screenshot({ path: process.env.SHOTS + "/nowplaying-bpm.png" });
+  await put("/songBpm", null);
+  await page.waitForFunction(() => document.getElementById("npBpm").hidden, null, { timeout: 10000 }).catch(() => {});
+  check(await page.$eval("#playStats", (el) => el.innerText.trim()) === "67 plays", "no tempo: just \"67 plays\"");
+
   console.log("-- push notifications: the service worker gets a pushed @mention");
   const swReady = await page.evaluate(() => Promise.race([
     navigator.serviceWorker.ready.then((r) => !!r.active && r.scope),
@@ -113,6 +134,18 @@ try {
   // (headless Chromium can't show notifications, so this checks the worker
   // received and read the push; it messages open windows as it shows one)
   check(!!reg && got === '{"type":"push","kind":"mention","id":"c1"}', "the service worker receives a pushed mention" + (got ? "" : " (nothing arrived)"));
+
+  console.log("-- on deck: the tab holds a Web Lock so it isn't frozen while idle");
+  const lockHeld = () => page.evaluate(() => navigator.locks.query().then((q) => q.held.some((l) => l.name === "firetable-on-deck")));
+  const realUid = await page.evaluate(() => ftapi.uid);
+  await page.evaluate(() => { ftapi.uid = "smokeDJ"; });
+  await put("/table", [{ name: "dj1", id: "dj1", plays: 1 }, { name: "smokeDJ", id: "smokeDJ", plays: 0 }]);
+  await page.waitForFunction(() => navigator.locks.query().then((q) => q.held.length > 0), null, { timeout: 10000 }).catch(() => {});
+  check(await lockHeld(), "held while on deck");
+  await put("/table", [{ name: "dj1", id: "dj1", plays: 1 }, { name: "dj2", id: "dj2", plays: 0 }]);
+  await sleep(500);
+  check(!(await lockHeld()), "let go after stepping down");
+  await page.evaluate((uid) => { ftapi.uid = uid; ftapi.keepAwake.update(); }, realUid);
 
   console.log("-- \"Get the app\" guide");
   const guide = await page.evaluate(() => {
@@ -196,6 +229,104 @@ try {
   }, DB).catch((e) => ["error: " + e.message]);
   check(counts.includes("p1=Mix (3, 1 ⚠)") && counts.includes("p2=Empty (0)") && counts.some((t) => /^0=.* \(4, 1 ⚠\)$/.test(t)),
     "every list's track and flagged counts show in the picker (" + counts.join(" | ") + ")");
+
+  console.log("-- emoji: Emoji 17.0 in the picker, old shortnames still work");
+  await page.waitForFunction(() => firetable.emojiMap && firetable.emojiMap.trombone, null, { timeout: 30000 }).catch(() => {});
+  const emo = await page.evaluate(() => ({
+    newest: firetable.emojiMap.trombone, renamed: firetable.emojiMap.hugging_face, old: firetable.emojiMap.smile,
+    sections: document.querySelectorAll("#pickerContents > div").length, picker: document.querySelectorAll(".pickerResult").length,
+    chat: firetable.utilities.emojiShortnamestoUnicode(":orca: :pouting_face:")
+  }));
+  check(emo.newest === "\u{1FA8A}" && emo.renamed === "🤗" && emo.old === "😄", "Emoji 17.0 shortnames load, and renamed and old ones still work");
+  check(emo.sections === 9 && emo.picker > 1900 && /\u{1FACD}/u.test(emo.chat) && /😡/.test(emo.chat), "the picker has every group and " + emo.picker + " emoji");
+
+  console.log("-- a printed card: GRAB, then YOURS / GRABBED BY / GONE");
+  await put("/cards", { cardA: { owner: false, cardnum: 1 }, cardB: { owner: false, cardnum: 2 }, cardC: { owner: false, cardnum: 3 } });
+  await put("/users/bot", { username: "hostbot", hostbot: true });
+  const grab = await page.evaluate(async () => {
+    const sent = [];
+    ftapi.actions.sendBotCommand = (t) => { sent.push(t); return Promise.resolve(); };
+    const add = (id) => { const $t = $('<div class="chatText"></div>').appendTo("#chats"); firetable.ui.addGrabButton($t, id); return $t.find(".chat-grab-btn"); };
+    const wait = (fn) => new Promise((r) => { const t = Date.now(); (function poll() { if (fn() || Date.now() - t > 8000) return r(); setTimeout(poll, 50); })(); });
+    const $a = add("cardA");
+    await wait(() => firetable.cardGrabs.cardA && firetable.cardGrabs.cardA.loaded);
+    const first = $a.attr("data-state") + ":" + $a.text();
+    $a.trigger("click");
+    const pending = $a.attr("data-state") + ":" + $a.prop("disabled");
+    return { first, pending, sent: sent.join() };
+  });
+  check(grab.first === "open:Grab" && grab.pending === "pending:true" && grab.sent === "!grab cardA", "GRAB sends \"!grab <card>\" quietly and waits (" + JSON.stringify(grab) + ")");
+  await put("/cards/cardA/owner", "smoke");
+  await page.waitForFunction(() => $('.chat-grab-btn[data-card="cardA"]').attr("data-state") === "mine", null, { timeout: 8000 }).catch(() => {});
+  const after = await page.evaluate(async () => {
+    const $a = $('.chat-grab-btn[data-card="cardA"]');
+    const mine = $a.attr("data-state") + ":" + $a.text() + ":" + $a.prop("disabled");
+    const $t = $('<div class="chatText"></div>').appendTo("#chats");
+    firetable.ui.addGrabButton($t, "cardB");
+    const $t2 = $('<div class="chatText"></div>').appendTo("#chats");
+    await new Promise((r) => setTimeout(r, 1500));
+    firetable.ui.addGrabButton($t2, "cardC"); // a newer card: B is gone
+    await new Promise((r) => setTimeout(r, 300));
+    const b = $('.chat-grab-btn[data-card="cardB"]');
+    return { mine, b: b.attr("data-state") + ":" + b.prop("disabled"), listening: Object.keys(firetable.cardGrabs).filter((k) => firetable.cardGrabs[k].fn).join() };
+  });
+  check(after.mine === "mine:Yours! See it:false", "the winner's button opens their card case (" + after.mine + ")");
+  check(after.b === "gone:true" && after.listening === "cardC", "a newer card greys out an older one nobody grabbed, and stops following it (" + JSON.stringify(after) + ")");
+  await put("/cards/cardC", { owner: "dj2", cardnum: 3 });
+  await page.waitForFunction(() => $('.chat-grab-btn[data-card="cardC"]').attr("data-state") === "taken", null, { timeout: 8000 }).catch(() => {});
+  check(await page.$eval('.chat-grab-btn[data-card="cardC"]', (b) => b.textContent + ":" + b.disabled) === "Grabbed by dj2:true", "someone else's grab shows who got it");
+
+  console.log("-- before the bot's rules are published: the old \"Type !grab\" message still gets a button");
+  await put("/cards/cardL", { owner: false, cardnum: 4 });
+  const legacy = await page.evaluate(async () => {
+    const sent = [];
+    ftapi.actions.sendBotCommand = (t) => { sent.push(t); return Promise.resolve(); };
+    const showCard = firetable.actions.showCard;
+    firetable.actions.showCard = () => {};
+    const say = (id, txt, extra) => ftapi.events.emit("newChat", Object.assign({ chatID: "smk" + Math.random().toString(36).slice(2), feedID: "f", id, name: id, txt, time: Date.now() }, extra));
+    say("bot", "A new trading card has been printed. Type !grab to grab it for yourself!");
+    const $b = $('.chat-grab-btn[data-card=""]').last();
+    const shown = $b.closest(".chatText").clone().children().remove().end().text().trim();
+    const first = $b.attr("data-state");
+    $b.trigger("click");
+    say("bot", "smoke grabbed the card!", { card: "cardL" });
+    await new Promise((r) => setTimeout(r, 300));
+    firetable.actions.showCard = showCard;
+    return { shown, first, sent: sent.join(), card: $b.attr("data-card") };
+  });
+  await put("/cards/cardL/owner", "smoke");
+  await page.waitForFunction(() => $('.chat-grab-btn[data-card="cardL"]').attr("data-state") === "mine", null, { timeout: 8000 }).catch(() => {});
+  legacy.after = await page.$eval('.chat-grab-btn[data-card="cardL"]', (b) => b.dataset.state).catch(() => "missing");
+  check(legacy.shown === "A new trading card has been printed." && legacy.first === "open" && legacy.sent === "!grab" && legacy.card === "cardL" && legacy.after === "mine",
+    "it hides \"Type !grab\", sends a plain !grab and learns the card from \"… grabbed the card!\" (" + JSON.stringify(legacy) + ")");
+
+  console.log("-- reaction picker: disco ball and dancers, fits a phone");
+  const fits = async () => page.evaluate(async () => {
+    const pop = document.getElementById("reactPickerPopover");
+    pop.showPopover();
+    await new Promise((r) => setTimeout(r, 300));
+    const box = pop.querySelector(".reactPicker").getBoundingClientRect();
+    const out = { keys: [...pop.querySelectorAll(".reactPick")].map((b) => b.dataset.key).slice(-3).join(), count: pop.querySelectorAll(".reactPick").length,
+      inside: box.left >= 0 && box.right <= window.innerWidth, w: Math.round(box.width) };
+    pop.hidePopover();
+    return out;
+  });
+  const wide = await fits();
+  await page.setViewportSize({ width: 375, height: 740 });
+  const phone = await fits();
+  await page.setViewportSize({ width: 1280, height: 720 });
+  check(wide.count === 11 && wide.keys === "mirror_ball,man_dancing,woman_dancing", "the picker has 🪩 🕺 💃 (" + JSON.stringify(wide) + ")");
+  check(phone.inside, "the picker fits a 375px phone (" + JSON.stringify(phone) + ")");
+  if (process.env.SHOTS) {
+    for (const [w, name] of [[1280, "wide"], [375, "phone"]]) {
+      await page.setViewportSize({ width: w, height: 740 });
+      await page.evaluate(() => document.getElementById("reactPickerPopover").showPopover());
+      await sleep(400);
+      await page.locator("#reactPickerPopover .reactPicker").screenshot({ path: process.env.SHOTS + "/react-" + name + ".png" });
+      await page.evaluate(() => document.getElementById("reactPickerPopover").hidePopover());
+    }
+    await page.setViewportSize({ width: 1280, height: 720 });
+  }
 
   console.log("-- a SoundCloud song: the album-art glitch loads p5.js");
   await put("/songToPlay", Object.assign({}, youtubeSong, { type: 2, cid: "13158665", title: "Smoke SC", started: Date.now(),

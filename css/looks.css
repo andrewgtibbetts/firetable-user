@@ -709,7 +709,6 @@ button.track-warning {
 #stageActions #fire.on {
     color: var(--color-on-accent);
     background-color: var(--color-accent);
-    background-image: radial-gradient(circle at 50% 15%, rgba(255, 255, 255, 0.18), rgba(0, 0, 0, 0.25));
     border-top-color: rgba(255, 255, 255, 0.3);
     box-shadow: 0 0 0.75rem color-mix(in srgb, var(--color-accent) 55%, transparent), var(--shadow-drop);
     animation: fire-btn-on 0.5s ease-out;
@@ -2771,7 +2770,7 @@ input.ft-filter {
 /* Rows hidden by the playlist and history filters (see filterQueue and
    applyHistoryFilter). A class rather than inline styles, so the whole list
    is restyled in one pass. */
-#mainqueue > .pvbar.ft-filtered,
+#mainqueue .ft-filtered,
 #thehistory .hist-entry.ft-filtered {
     display: none !important;
 }
@@ -2846,16 +2845,33 @@ input.ft-filter {
     padding-right: var(--pad3);
 }
 
-/* Large playlists: let the browser skip layout/paint for rows that are
-   off-screen, so redrawing a 2,000+ track list stays fast. "auto" remembers
-   each row's real height once it has been shown. The drag placeholder and the
-   row being dragged are excluded so drag-to-reorder positions are unchanged.
-   The size is the row's content box (the art: 34px row minus its 1px borders): any
-   other value makes rows that haven't been shown yet the wrong height, so the
-   list jumps when it is redrawn (send to top / bottom). */
-#mainqueue > .pvbar:not(.ui-sortable-placeholder):not(.ui-sortable-helper) {
+/* Large playlists: rows come in blocks of up to 100 (.pvchunk, see
+   playlist.js) and the browser skips layout and paint for blocks that are
+   off-screen, so a list of thousands of tracks stays fast.
+   The skipping is per block, not per row: Chrome checks every skippable
+   element against the screen on each frame, and with one per row a long
+   list kept the page busy on every frame (taps took seconds on phones).
+   An off-screen block that hasn't been shown yet is sized from its shown
+   rows (--rows, kept up to date by filterQueue) times the spacing of a real
+   row (--q-pitch: its height plus one margin, measured in playlist.js since
+   it depends on the density setting), plus one margin for its first row's
+   top. The size has to be exact, or the list jumps when it is redrawn
+   (send to top / bottom). "auto" remembers a block's real height once it
+   has been shown. */
+#mainqueue > .pvchunk {
+    display: flow-root; /* row margins stay inside, the same on- and off-screen */
     content-visibility: auto;
-    contain-intrinsic-size: auto var(--q-art, 2rem); /* the art sets the row height */
+    contain-intrinsic-size: auto calc(var(--rows, 100) * var(--q-pitch, calc(var(--q-art, 2rem) + 2px + var(--pad1))) + var(--pad1));
+}
+/* Pull each block up by one margin, so the gap across a block's edge is the
+   same single margin as between rows inside it. */
+#mainqueue > .pvchunk + .pvchunk {
+    margin-top: calc(-1 * var(--pad1));
+}
+/* The block a row is dragged out of stays drawn, so the row being dragged
+   doesn't vanish when that block scrolls off-screen. */
+#mainqueue > .pvchunk.sort-src {
+    content-visibility: visible;
 }
 
 #queuelist .q-art,
@@ -3748,51 +3764,31 @@ a.importLinkCheck {
     opacity: 1;
 }
 
-.chat-dance-wrap {
-    margin-top: var(--pad2);
-    text-align: center;
+/* Buttons in chat messages (DANCE, GRAB #247): the site's flat .butt,
+   sized for chat and lined up with the message text */
+.chat-dance-wrap,
+.chat-grab-wrap {
+    margin-top: 0.35rem;
+    text-align: left;
 }
 
-
-.chat-dance-btn {
+.chat-dance-btn,
+.chat-grab-btn {
     display: inline-flex;
-    height: auto;
-    padding: 0.4em 0.6em;
-    font-size: 1.5rem;
-    font-weight: 900;
-    line-height: 1;
-    letter-spacing: 0.025em;
-    text-transform: uppercase;
-    color: color-mix(in srgb, var(--color-accent) 10%, white);
-    background: linear-gradient(to bottom, 
-        color-mix(in srgb, var(--color-accent) 10%, white 10%), 
-        color-mix(in srgb, var(--color-accent) 10%, white 25%) 44%, 
-        color-mix(in srgb, var(--color-accent) 10%, black) 45%, 
-        color-mix(in srgb, var(--color-accent) 10%, black 50%)
-    );
-    border: 1px solid black;
-    border-radius: 0.8rem;
-    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.5),
-                inset 0 -1px 1px black,
-                0 -4px 12px -4px rgba(123, 123, 123, 0.51),
-                0 4px 12px -4px black;
-    transition: transform 0.08s ease, box-shadow 0.08s ease, filter 0.12s ease;
+    padding: 0.5em 1.1em;
 }
 
-.chat-dance-btn:hover:not(:disabled) {
-    filter: brightness(1.05) saturate(1.05);
-}
-
-.chat-dance-btn:active:not(:disabled),
-.chat-dance-btn.is-pressed {
-    transform: translateY(2px);
-    box-shadow:
-        inset 0 2px 4px rgba(0, 0, 0, 0.33),
-        inset 0 1px rgba(255, 255, 255, 0.18);
-}
-
+/* done or settled (dancing, grabbing, someone else's, gone): a quiet label, like .graybutt */
 .chat-dance-btn.is-pressed,
-.chat-dance-btn:disabled {
+.chat-grab-btn[data-state="pending"],
+.chat-grab-btn[data-state="taken"],
+.chat-grab-btn[data-state="gone"] {
+    color: rgba(255, 255, 255, 0.55);
+    background: rgba(255, 255, 255, 0.05);
+    border-top-color: transparent;
+    border-bottom-color: transparent;
+    box-shadow: none;
+    opacity: 1;
     cursor: default;
 }
 
@@ -6047,7 +6043,11 @@ body.density-comfortable #thehistory .histlink { font-size: 1rem; }
     border-color: color-mix(in srgb, var(--color-accent) 60%, transparent);
 }
 .reactChip img.emoji, .reactPick img.emoji { width: 1em; height: 1em; }
-.reactPicker { display: flex; gap: 0.15rem; padding: 0.3rem; }
+.reactPicker { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.15rem; padding: 0.3rem; max-width: calc(100vw - 2rem); }
+/* phones: two even rows instead of one too wide for the screen */
+@media (max-width: 480px) {
+    .reactPicker { display: grid; grid-template-columns: repeat(6, auto); }
+}
 .reactPick {
     font-size: 1.3rem;
     line-height: 1;
@@ -6082,6 +6082,7 @@ body.density-comfortable #thehistory .histlink { font-size: 1rem; }
 }
 .inboxBox { width: min(22rem, 92vw); max-height: 70vh; overflow: auto; }
 .inboxHead { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--pad2); }
+.inboxHeadActions { display: flex; align-items: center; gap: var(--pad2); }
 .inboxEmpty { font-size: 0.8rem; color: rgba(255, 255, 255, 0.6); }
 .inboxItem {
     display: flex;
@@ -6196,13 +6197,10 @@ button.track-warning:focus-visible { outline: 2px solid var(--color-accent); out
 #pickNameForm { display: grid; gap: .75rem; width: 100%; & p { margin: 0; } }
 
 /* ─── On the beat (#143) ─── */
-.npArtistRow { display: flex; align-items: baseline; gap: .45em; min-width: 0; }
-.npArtistRow #artist { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* "111 BPM, 67 plays": the tempo always comes first on the plays line */
 #npBpm {
-  flex: none; font-size: .7rem; font-weight: 600; letter-spacing: .03em; opacity: .65;
-  text-shadow: 0 1px 0.3rem rgba(0, 0, 0, 0.6);
-  &::before { content: "· "; }
   &[hidden] { display: none; }
+  &:not([hidden]) + #playCount:not(:empty)::before { content: ", "; }
 }
 body.has-beat .avtr.animate {
   animation-duration: var(--bop);
