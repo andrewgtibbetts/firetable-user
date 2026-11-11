@@ -2592,12 +2592,6 @@ ul.lightrope li {
     min-width: 0;
 }
 
-#queuebox,
-#thehistoryWrap,
-#discover {
-    padding-top: var(--panel-gap);
-}
-
 #queuebox.drop-ready #queuelist {
     position: relative;
 
@@ -4259,7 +4253,7 @@ img.emoji,
     grid-area: content;
     display: none;
     overflow: auto;
-    padding: var(--panel-gap) max(0px, var(--pad3) - var(--scroll-gutter, 0px)) var(--pad3) var(--pad3);
+    padding: 0 max(0px, var(--pad3) - var(--scroll-gutter, 0px)) var(--pad3) var(--pad3);
 }
 
 /* ============================================
@@ -4684,11 +4678,62 @@ dialog::backdrop {
     grid-column: 1 / -1;
     display: flex;
     flex-direction: column;
-    gap: var(--pad2);
-    padding: var(--pad3);
+    gap: 0;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
     background-color: var(--color-bg-t1);
+    overflow: hidden;
+}
+
+.cardStatsHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--pad2) var(--pad3);
+    border-bottom: 1px solid var(--color-border);
+}
+
+#cardStats.collapsed .cardStatsHeader {
+    border-bottom: none;
+}
+
+.cardStatsTitle {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--color-text-muted);
+}
+
+.cardStatsToggle {
+    padding: 0.1rem !important;
+    min-height: unset !important;
+    width: 1.6rem;
+    height: 1.6rem;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.cardStatsToggle i {
+    font-size: 1.1rem;
+    transition: transform 200ms ease;
+}
+
+#cardStats.collapsed .cardStatsToggle i {
+    transform: rotate(-90deg);
+}
+
+.cardStatsBody {
+    display: flex;
+    flex-direction: column;
+    gap: var(--pad2);
+    padding: var(--pad3);
+}
+
+#cardStats.collapsed .cardStatsBody {
+    display: none;
 }
 
 .cardStatsSummary {

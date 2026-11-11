@@ -35,6 +35,14 @@ $(document)
     $group.toggleClass('collapsed');
     $(this).attr('aria-expanded', String(!$group.hasClass('collapsed')));
   })
+  .off('click.cardStatsSection')
+  .on('click.cardStatsSection', '#cardStats .cardStatsToggle', function () {
+    var $section = $(this).closest('#cardStats');
+    var collapsed = $section.toggleClass('collapsed').hasClass('collapsed');
+    $(this).attr('aria-expanded', String(!collapsed))
+           .attr('aria-label', collapsed ? 'Expand stats and filters' : 'Collapse stats and filters')
+           .find('i').text(collapsed ? 'close' : 'expand_more');
+  })
     // Touch screens have no hover: tapping a card shows / hides its actions
   .off('click.cardSpotActions')
   .on('click.cardSpotActions', '#cardsMain .caseCardSpot', function (e) {
@@ -120,6 +128,13 @@ firetable.actions.renderCardStats = function (data) {
 
   return (
     '<section id="cardStats">' +
+    '<div class="cardStatsHeader">' +
+    '<span class="cardStatsTitle">Stats &amp; Filters</span>' +
+    '<button type="button" class="cardStatsToggle butt graybutt iconbutt" aria-label="Collapse stats and filters" aria-expanded="true">' +
+    '<i class="material-symbols-outlined">expand_more</i>' +
+    '</button>' +
+    '</div>' +
+    '<div class="cardStatsBody">' +
     '<div class="cardStatsSummary">' +
     '<div class="cardStatTile"><span class="cardStatLabel">Total Cards</span><span class="cardStatValue">' + total + '</span></div>' +
     '<div class="cardStatTile"><span class="cardStatLabel">Unique DJs</span><span class="cardStatValue">' + Object.keys(perDj).length + '</span></div>' +
@@ -134,6 +149,7 @@ firetable.actions.renderCardStats = function (data) {
     '<div class="cardFilterControl"><input id="cardFilterText" class="cardFilterInput" type="search" placeholder="Search cards…" aria-label="Filter cards by text" /></div>' +
     '<div class="cardFilterControl"><select id="cardFilterDj" class="cardFilterSelect" aria-label="Filter cards by DJ"><option value="">All DJs</option>' + djOptions + '</select></div>' +
     '<div class="cardFilterControl"><select id="cardSortBy" class="cardFilterSelect" aria-label="Sort cards by"><option value="cardnum">Card Number</option><option value="djname">DJ Name</option><option value="temp">Temp</option><option value="num">Num</option></select></div>' +
+    '</div>' +
     '</div>' +
     '</section>'
   );
