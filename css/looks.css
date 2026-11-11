@@ -141,7 +141,7 @@
     --radius-sm: 0.25rem;
     --radius-md: 0.5rem;
     --radius-pill: 999px;
-    --theme-pill-h: 2.25rem;
+    --theme-pill-h: 1.75rem;
 
     /* Typography */
     --font-family: "Inter", "Open Sans", helvetica, arial, sans-serif;
@@ -3401,8 +3401,8 @@ a.importLinkCheck {
     gap: var(--pad2);
     min-width: 0;
     max-width: 100%;
-    min-height: 2rem;
-    padding: 0.25rem 0.75rem 0.25rem 0.3rem;
+    min-height: var(--theme-pill-h);
+    padding: 0 0.75rem 0 0.3rem;
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: var(--radius-pill);
     background: rgba(255, 255, 255, 0.06);
@@ -3410,7 +3410,6 @@ a.importLinkCheck {
     font: inherit;
     font-size: 0.8125rem;
     line-height: 1.2;
-    text-align: start;
     cursor: pointer;
     transition: background-color 0.15s ease, border-color 0.15s ease;
 }

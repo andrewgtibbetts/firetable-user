@@ -41,7 +41,7 @@ $(document)
     var collapsed = $section.toggleClass('collapsed').hasClass('collapsed');
     $(this).attr('aria-expanded', String(!collapsed))
            .attr('aria-label', collapsed ? 'Expand stats and filters' : 'Collapse stats and filters')
-           .find('i').text(collapsed ? 'expand_more' : 'close');
+           .find('i').text(collapsed ? 'keyboard_arrow_down' : 'close');
   })
     // Touch screens have no hover: tapping a card shows / hides its actions
   .off('click.cardSpotActions')
@@ -131,7 +131,7 @@ firetable.actions.renderCardStats = function (data) {
     '<div class="cardStatsHeader">' +
     '<span class="cardStatsTitle">Stats &amp; Filters</span>' +
     '<button type="button" class="cardStatsToggle butt graybutt iconbutt" aria-label="Expand stats and filters" aria-expanded="false">' +
-    '<i class="material-symbols-outlined">expand_more</i>' +
+    '<i class="material-symbols-outlined">keyboard_arrow_down</i>' +
     '</button>' +
     '</div>' +
     '<div class="cardStatsBody">' +
