@@ -4718,11 +4718,6 @@ dialog::backdrop {
 
 .cardStatsToggle i {
     font-size: 1.1rem;
-    transition: transform 200ms ease;
-}
-
-#cardStats.collapsed .cardStatsToggle i {
-    transform: rotate(-90deg);
 }
 
 .cardStatsBody {
